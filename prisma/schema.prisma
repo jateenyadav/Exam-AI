@@ -88,3 +88,10 @@ model ExamResult {
   emailSent         Boolean     @default(false)
   generatedAt       DateTime    @default(now())
 }
+
+model AppSettings {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

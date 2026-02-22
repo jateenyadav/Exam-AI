@@ -1,13 +1,15 @@
 export async function generateWithOpenRouter(
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  apiKey?: string
 ): Promise<string> {
+  const key = apiKey || process.env.OPENROUTER_API_KEY || "";
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
       },
@@ -34,14 +36,16 @@ export async function evaluateImageWithOpenRouter(
   imageBase64: string,
   mimeType: string,
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  apiKey?: string
 ): Promise<string> {
+  const key = apiKey || process.env.OPENROUTER_API_KEY || "";
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
       },

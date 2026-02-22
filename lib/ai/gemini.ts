@@ -1,11 +1,12 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
 export async function generateWithGemini(
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  apiKey?: string
 ): Promise<string> {
+  const key = apiKey || process.env.GEMINI_API_KEY || "";
+  const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: systemPrompt,
@@ -19,8 +20,11 @@ export async function evaluateImageWithGemini(
   imageBase64: string,
   mimeType: string,
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  apiKey?: string
 ): Promise<string> {
+  const key = apiKey || process.env.GEMINI_API_KEY || "";
+  const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: systemPrompt,
