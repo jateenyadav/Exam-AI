@@ -3,12 +3,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model Student {
-  id          String        @id @default(cuid())
+  id          String        @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   email       String        @unique
   parentEmail String?
@@ -17,17 +17,17 @@ model Student {
 }
 
 model ExamSession {
-  id             String         @id @default(cuid())
-  studentId      String
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  studentId      String         @db.ObjectId
   student        Student        @relation(fields: [studentId], references: [id])
-  mode           String // class11, class12, jee_mains, jee_advanced
-  subject        String // physics, chemistry, mathematics, english, full_mock
-  chapters       String // JSON array of chapter names
+  mode           String
+  subject        String
+  chapters       String
   totalMarks     Int
-  duration       Int // in seconds
+  duration       Int
   startTime      DateTime       @default(now())
   endTime        DateTime?
-  status         String         @default("active") // active, completed, auto_submitted
+  status         String         @default("active")
   violationCount Int            @default(0)
   autoSubmitted  Boolean        @default(false)
   questions      Question[]
@@ -37,34 +37,32 @@ model ExamSession {
 }
 
 model Question {
-  id             String         @id @default(cuid())
-  sessionId      String
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId      String         @db.ObjectId
   session        ExamSession    @relation(fields: [sessionId], references: [id])
   questionNumber Int
-  section        String // section_a, section_b, section_c, section_d, section_e
-  type           String // mcq, assertion_reason, short_answer, long_answer, case_based, integer, multiple_correct, matrix_match, paragraph
+  section        String
+  type           String
   questionText   String
-  options        String? // JSON array of options
+  options        String?
   correctAnswer  String
-  solution       String // step-by-step solution
+  solution       String
   marks          Int
   negativeMarks  Float          @default(0)
   chapterName    String
-  difficulty     String // easy, medium, hard
+  difficulty     String
   imageUrl       String?
   hasSubParts    Boolean        @default(false)
-  subParts       String? // JSON array of sub-parts
+  subParts       String?
   answers        StudentAnswer[]
   createdAt      DateTime       @default(now())
-
-  @@index([sessionId])
 }
 
 model StudentAnswer {
-  id             String      @id @default(cuid())
-  questionId     String
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  questionId     String      @db.ObjectId
   question       Question    @relation(fields: [questionId], references: [id])
-  sessionId      String
+  sessionId      String      @db.ObjectId
   session        ExamSession @relation(fields: [sessionId], references: [id])
   answerText     String?
   answerImageUrl String?
@@ -73,23 +71,20 @@ model StudentAnswer {
   aiFeedback     String?
   modelAnswer    String?
   submittedAt    DateTime    @default(now())
-
-  @@index([sessionId])
-  @@index([questionId])
 }
 
 model ExamResult {
-  id                String      @id @default(cuid())
-  sessionId         String      @unique
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId         String      @unique @db.ObjectId
   session           ExamSession @relation(fields: [sessionId], references: [id])
   totalMarks        Int
   marksObtained     Float
   percentage        Float
-  sectionBreakdown  String // JSON
-  chapterBreakdown  String // JSON
-  strengths         String? // JSON array
-  weaknesses        String? // JSON array
-  recommendations   String? // JSON
+  sectionBreakdown  String
+  chapterBreakdown  String
+  strengths         String?
+  weaknesses        String?
+  recommendations   String?
   emailSent         Boolean     @default(false)
   generatedAt       DateTime    @default(now())
 }
