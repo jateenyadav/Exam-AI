@@ -1,36 +1,161 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ExamAce - AI-Powered Exam Practice Platform
+
+ExamAce is a full-stack AI-powered exam practice web application for **CBSE** and **JEE** students. It generates exam papers using AI, evaluates answers (including handwritten ones via camera), and provides detailed performance analytics.
+
+## Features
+
+- **Multi-Exam Support**: Class 11 CBSE, Class 12 CBSE, JEE Mains, JEE Advanced
+- **AI Paper Generation**: Questions generated using Google Gemini / OpenRouter matching exact exam patterns
+- **Camera-Based Answer Submission**: Photograph handwritten answers for AI evaluation
+- **Anti-Cheating System**: Fullscreen mode, tab-switch detection, keyboard shortcut blocking
+- **Timed Exam Environment**: Countdown timer with warnings at 30, 15, and 5 minutes
+- **AI Evaluation**: Written answers evaluated by Gemini Vision, MCQs auto-graded
+- **Detailed Analytics**: Section-wise and chapter-wise performance breakdown
+- **Email Reports**: Send detailed HTML result reports via email
+- **Progress Dashboard**: Track exam history and performance over time
+- **Dark Mode**: Full dark mode support
+- **Mobile Responsive**: Works on phones and tablets (camera for answer capture)
+
+## Tech Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS + Shadcn/UI
+- **Database**: SQLite (dev) / PostgreSQL (prod) via Prisma ORM
+- **AI**: Google Gemini API (primary) + OpenRouter API (fallback)
+- **State Management**: Zustand
+- **Animations**: Framer Motion
+- **Email**: Nodemailer
+
+## Prerequisites
+
+- Node.js 18+ and npm
+- A Google Gemini API key (or OpenRouter API key)
 
 ## Getting Started
 
-First, run the development server:
+### 1. Clone and Install
+
+```bash
+cd examace
+npm install
+```
+
+### 2. Environment Variables
+
+Copy the `.env` file and fill in your API keys:
+
+```
+DATABASE_URL="file:./dev.db"
+GEMINI_API_KEY="your-gemini-api-key"
+OPENROUTER_API_KEY="your-openrouter-api-key"
+EMAIL_FROM="noreply@examace.com"
+EMAIL_SMTP_HOST="smtp.gmail.com"
+EMAIL_SMTP_PORT="587"
+EMAIL_SMTP_USER="your-email@gmail.com"
+EMAIL_SMTP_PASS="your-app-password"
+NEXTAUTH_SECRET="generate-a-random-string"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+```
+
+### 3. Get API Keys
+
+**Google Gemini API Key:**
+1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
+2. Click "Create API Key"
+3. Copy and paste into `GEMINI_API_KEY`
+
+**OpenRouter API Key (fallback):**
+1. Go to [OpenRouter](https://openrouter.ai/keys)
+2. Create an account and generate an API key
+3. Copy and paste into `OPENROUTER_API_KEY`
+
+### 4. Database Setup
+
+```bash
+npx prisma generate
+npx prisma db push
+```
+
+### 5. Run Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Usage Flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Home Page** → Click "Start Practice Exam"
+2. **Step 1** → Select exam mode (Class 11/12 CBSE, JEE Mains/Advanced)
+3. **Step 2** → Select subject
+4. **Step 3** → Select chapters to include
+5. **Step 4** → Enter student name and email
+6. **Exam** → Answer questions within the time limit
+   - MCQs: Click options
+   - Written: Photograph handwritten answers or type
+   - Use navigation panel to jump between questions
+7. **Results** → View detailed AI-evaluated results
+8. **Dashboard** → Track progress over multiple exams
 
-## Learn More
+## Exam Patterns Supported
 
-To learn more about Next.js, take a look at the following resources:
+| Exam | Sections | Total Marks | Duration |
+|------|----------|-------------|----------|
+| CBSE Physics/Chemistry | MCQ + Short + Case-Based + Long | 70 | 3 hours |
+| CBSE Mathematics | MCQ + Short + Long + Case-Based | 80 | 3 hours |
+| CBSE English | Reading + Writing + Grammar + Literature | 80 | 3 hours |
+| JEE Mains (per subject) | MCQ + Integer | 100 | 1 hour |
+| JEE Mains (Full Mock) | 3 subjects | 300 | 3 hours |
+| JEE Advanced (per subject) | Single + Multiple Correct + Integer | 60 | 1 hour |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+examace/
+├── app/
+│   ├── api/              # API routes
+│   │   ├── evaluate/     # Answer evaluation
+│   │   ├── exam-session/ # Session management
+│   │   ├── generate-paper/ # AI paper generation
+│   │   ├── send-results/ # Email results
+│   │   ├── student/      # Student CRUD
+│   │   └── submit-answer/ # Answer submission
+│   ├── dashboard/        # Student dashboard
+│   ├── exam/             # Exam interface
+│   ├── results/          # Results page
+│   ├── setup/            # Exam setup wizard
+│   ├── layout.tsx        # Root layout
+│   └── page.tsx          # Home page
+├── components/
+│   ├── exam/             # Exam-specific components
+│   ├── ui/               # Shadcn/UI components
+│   └── theme-provider.tsx
+├── lib/
+│   ├── ai/               # Gemini + OpenRouter integration
+│   ├── evaluator/        # Answer evaluation logic
+│   ├── paper-generator/  # Paper generation logic
+│   ├── store/            # Zustand state management
+│   ├── syllabus/         # All syllabus data
+│   ├── db.ts             # Prisma client
+│   └── utils.ts          # Utilities
+├── prisma/
+│   └── schema.prisma     # Database schema
+└── public/
+    └── uploads/          # Answer images
+```
 
-## Deploy on Vercel
+## Deployment (Vercel)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push to GitHub
+2. Import in [Vercel](https://vercel.com)
+3. Add all environment variables
+4. For production, switch to PostgreSQL:
+   - Update `DATABASE_URL` to your PostgreSQL connection string
+   - Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma`
+5. Deploy
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+MIT

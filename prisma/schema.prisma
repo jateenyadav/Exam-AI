@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id          String        @id @default(cuid())
+  name        String
+  email       String        @unique
+  parentEmail String?
+  createdAt   DateTime      @default(now())
+  sessions    ExamSession[]
+}
+
+model ExamSession {
+  id             String         @id @default(cuid())
+  studentId      String
+  student        Student        @relation(fields: [studentId], references: [id])
+  mode           String // class11, class12, jee_mains, jee_advanced
+  subject        String // physics, chemistry, mathematics, english, full_mock
+  chapters       String // JSON array of chapter names
+  totalMarks     Int
+  duration       Int // in seconds
+  startTime      DateTime       @default(now())
+  endTime        DateTime?
+  status         String         @default("active") // active, completed, auto_submitted
+  violationCount Int            @default(0)
+  autoSubmitted  Boolean        @default(false)
+  questions      Question[]
+  answers        StudentAnswer[]
+  result         ExamResult?
+  createdAt      DateTime       @default(now())
+}
+
+model Question {
+  id             String         @id @default(cuid())
+  sessionId      String
+  session        ExamSession    @relation(fields: [sessionId], references: [id])
+  questionNumber Int
+  section        String // section_a, section_b, section_c, section_d, section_e
+  type           String // mcq, assertion_reason, short_answer, long_answer, case_based, integer, multiple_correct, matrix_match, paragraph
+  questionText   String
+  options        String? // JSON array of options
+  correctAnswer  String
+  solution       String // step-by-step solution
+  marks          Int
+  negativeMarks  Float          @default(0)
+  chapterName    String
+  difficulty     String // easy, medium, hard
+  imageUrl       String?
+  hasSubParts    Boolean        @default(false)
+  subParts       String? // JSON array of sub-parts
+  answers        StudentAnswer[]
+  createdAt      DateTime       @default(now())
+
+  @@index([sessionId])
+}
+
+model StudentAnswer {
+  id             String      @id @default(cuid())
+  questionId     String
+  question       Question    @relation(fields: [questionId], references: [id])
+  sessionId      String
+  session        ExamSession @relation(fields: [sessionId], references: [id])
+  answerText     String?
+  answerImageUrl String?
+  isCorrect      Boolean?
+  marksAwarded   Float?
+  aiFeedback     String?
+  modelAnswer    String?
+  submittedAt    DateTime    @default(now())
+
+  @@index([sessionId])
+  @@index([questionId])
+}
+
+model ExamResult {
+  id                String      @id @default(cuid())
+  sessionId         String      @unique
+  session           ExamSession @relation(fields: [sessionId], references: [id])
+  totalMarks        Int
+  marksObtained     Float
+  percentage        Float
+  sectionBreakdown  String // JSON
+  chapterBreakdown  String // JSON
+  strengths         String? // JSON array
+  weaknesses        String? // JSON array
+  recommendations   String? // JSON
+  emailSent         Boolean     @default(false)
+  generatedAt       DateTime    @default(now())
+}
