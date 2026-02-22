@@ -46,7 +46,7 @@ npm install
 Copy the `.env` file and fill in your API keys:
 
 ```
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="mongodb+srv://user:password@cluster.mongodb.net/examace"
 GEMINI_API_KEY="your-gemini-api-key"
 OPENROUTER_API_KEY="your-openrouter-api-key"
 EMAIL_FROM="noreply@examace.com"
@@ -55,7 +55,7 @@ EMAIL_SMTP_PORT="587"
 EMAIL_SMTP_USER="your-email@gmail.com"
 EMAIL_SMTP_PASS="your-app-password"
 NEXTAUTH_SECRET="generate-a-random-string"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_APP_URL="https://your-app.vercel.app"
 ```
 
 ### 3. Get API Keys
@@ -151,10 +151,7 @@ examace/
 1. Push to GitHub
 2. Import in [Vercel](https://vercel.com)
 3. Add all environment variables
-4. For production, switch to PostgreSQL:
-   - Update `DATABASE_URL` to your PostgreSQL connection string
-   - Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma`
-5. Deploy
+4. Deploy
 
 ## License
 
