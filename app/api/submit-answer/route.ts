@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,19 +16,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let imageUrl: string | null = null;
+    let imageDataUrl: string | null = null;
 
     if (answerImage) {
-      const uploadDir = join(process.cwd(), "public", "uploads", sessionId);
-      await mkdir(uploadDir, { recursive: true });
-
       const bytes = await answerImage.arrayBuffer();
       const buffer = Buffer.from(bytes);
-      const filename = `${questionId}_${Date.now()}.${answerImage.type.split("/")[1] || "jpg"}`;
-      const filepath = join(uploadDir, filename);
-
-      await writeFile(filepath, buffer);
-      imageUrl = `/uploads/${sessionId}/${filename}`;
+      const base64 = buffer.toString("base64");
+      const mimeType = answerImage.type || "image/jpeg";
+      imageDataUrl = `data:${mimeType};base64,${base64}`;
     }
 
     const existing = await prisma.studentAnswer.findFirst({
@@ -43,7 +36,7 @@ export async function POST(req: NextRequest) {
         where: { id: existing.id },
         data: {
           answerText: answerText || existing.answerText,
-          answerImageUrl: imageUrl || existing.answerImageUrl,
+          answerImageUrl: imageDataUrl || existing.answerImageUrl,
           submittedAt: new Date(),
         },
       });
@@ -53,7 +46,7 @@ export async function POST(req: NextRequest) {
           sessionId,
           questionId,
           answerText,
-          answerImageUrl: imageUrl,
+          answerImageUrl: imageDataUrl,
         },
       });
     }

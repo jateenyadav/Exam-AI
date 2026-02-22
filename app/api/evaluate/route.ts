@@ -7,10 +7,8 @@ import {
   evaluateWrittenAnswer,
   generateDetailedReport,
 } from "@/lib/evaluator";
-import { readFile } from "fs/promises";
-import { join } from "path";
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -96,11 +94,17 @@ export async function POST(req: NextRequest) {
         );
       } else if (answer.answerImageUrl) {
         try {
-          const imagePath = join(process.cwd(), "public", answer.answerImageUrl);
-          const imageBuffer = await readFile(imagePath);
-          const base64 = imageBuffer.toString("base64");
-          const ext = answer.answerImageUrl.split(".").pop() || "jpg";
-          const mimeType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+          let base64: string;
+          let mimeType: string;
+
+          if (answer.answerImageUrl.startsWith("data:")) {
+            const match = answer.answerImageUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (!match) throw new Error("Invalid data URL");
+            mimeType = match[1];
+            base64 = match[2];
+          } else {
+            throw new Error("Image not available (filesystem storage not supported in production)");
+          }
 
           result = await evaluateWrittenAnswer(
             base64,

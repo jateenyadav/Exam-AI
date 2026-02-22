@@ -1,7 +1,7 @@
 import { generateWithGemini, evaluateImageWithGemini } from "./gemini";
 import { generateWithOpenRouter, evaluateImageWithOpenRouter } from "./openrouter";
 
-const AI_TIMEOUT_MS = 15000;
+const AI_TIMEOUT_MS = 55000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
