@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { generatePaper } from "@/lib/paper-generator";
 import { ExamMode } from "@/lib/syllabus";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
