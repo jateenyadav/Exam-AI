@@ -1,96 +1,77 @@
-import { generateWithGemini, evaluateImageWithGemini } from "./gemini";
-import { generateWithOpenRouter, evaluateImageWithOpenRouter } from "./openrouter";
-import { getSettings } from "@/lib/settings";
-
-const AI_TIMEOUT_MS = 55000;
+import type { ZodType } from "zod";
+import { env } from "@/lib/env";
+import { log } from "@/lib/http";
+import { callGemini, type AiRequest } from "./gemini";
+import { callOpenRouter } from "./openrouter";
 
 type Provider = "gemini" | "openrouter";
 
-interface AIKeys {
-  geminiKey: string;
-  openrouterKey: string;
-  primary: Provider;
+/** Which providers are usable right now, in the order we'll try them. */
+export function providerOrder(): Provider[] {
+  const e = env();
+  const available: Provider[] = [];
+  if (e.GEMINI_API_KEY) available.push("gemini");
+  if (e.OPENROUTER_API_KEY && e.OPENROUTER_MODEL) available.push("openrouter");
+  if (e.AI_PROVIDER && available.includes(e.AI_PROVIDER)) {
+    return [e.AI_PROVIDER, ...available.filter((p) => p !== e.AI_PROVIDER)];
+  }
+  return available;
 }
 
-async function getAIKeys(): Promise<AIKeys> {
-  const db = await getSettings();
-  const geminiKey = db["GEMINI_API_KEY"] || process.env.GEMINI_API_KEY || "";
-  const openrouterKey = db["OPENROUTER_API_KEY"] || process.env.OPENROUTER_API_KEY || "";
-
-  const providerPref = (db["AI_PROVIDER"] || process.env.AI_PROVIDER || "").toLowerCase();
-  let primary: Provider = "gemini";
-  if (providerPref === "openrouter") primary = "openrouter";
-  else if (providerPref === "gemini") primary = "gemini";
-  else if (openrouterKey && !geminiKey) primary = "openrouter";
-
-  return { geminiKey, openrouterKey, primary };
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`AI request timed out after ${ms}ms`)), ms)
-    ),
-  ]);
-}
-
-export async function generateText(
-  prompt: string,
-  systemPrompt: string
-): Promise<string> {
-  const keys = await getAIKeys();
-  const fallback: Provider = keys.primary === "gemini" ? "openrouter" : "gemini";
-
-  const run = async (provider: Provider) => {
-    const key = provider === "gemini" ? keys.geminiKey : keys.openrouterKey;
-    if (!key) throw new Error(`No ${provider} API key configured`);
-    if (provider === "gemini") {
-      return withTimeout(generateWithGemini(prompt, systemPrompt, key), AI_TIMEOUT_MS);
-    }
-    return withTimeout(generateWithOpenRouter(prompt, systemPrompt, key), AI_TIMEOUT_MS);
+export function aiStatus() {
+  const e = env();
+  return {
+    providers: providerOrder(),
+    geminiModel: e.GEMINI_API_KEY ? e.GEMINI_MODEL : null,
+    openrouterModel: e.OPENROUTER_API_KEY ? e.OPENROUTER_MODEL ?? "(set OPENROUTER_MODEL)" : null,
   };
+}
 
+/** Models often wrap JSON in ``` fences or add prose — pull out the JSON value. */
+export function extractJson(text: string): unknown {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
   try {
-    return await run(keys.primary);
-  } catch (err) {
-    console.warn(`${keys.primary} failed:`, (err as Error).message);
-    try {
-      return await run(fallback);
-    } catch (fallbackErr) {
-      console.warn(`${fallback} also failed:`, (fallbackErr as Error).message);
-      throw new Error("All AI providers failed. Check your API keys in Settings.");
-    }
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.search(/[[{]/);
+    const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error("AI response was not JSON");
   }
 }
 
-export async function evaluateImage(
-  imageBase64: string,
-  mimeType: string,
-  prompt: string,
-  systemPrompt: string
-): Promise<string> {
-  const keys = await getAIKeys();
-  const fallback: Provider = keys.primary === "gemini" ? "openrouter" : "gemini";
+async function callProvider(provider: Provider, req: AiRequest): Promise<string> {
+  const e = env();
+  if (provider === "gemini") return callGemini(req, e.GEMINI_API_KEY!, e.GEMINI_MODEL);
+  return callOpenRouter(req, e.OPENROUTER_API_KEY!, e.OPENROUTER_MODEL!, e.NEXT_PUBLIC_APP_URL);
+}
 
-  const run = async (provider: Provider) => {
-    const key = provider === "gemini" ? keys.geminiKey : keys.openrouterKey;
-    if (!key) throw new Error(`No ${provider} API key configured`);
-    if (provider === "gemini") {
-      return withTimeout(evaluateImageWithGemini(imageBase64, mimeType, prompt, systemPrompt, key), AI_TIMEOUT_MS);
-    }
-    return withTimeout(evaluateImageWithOpenRouter(imageBase64, mimeType, prompt, systemPrompt, key), AI_TIMEOUT_MS);
-  };
+/**
+ * Ask the AI for JSON and validate it against a schema. Tries each configured
+ * provider in turn; a provider "fails" if it errors, times out, or returns
+ * output that doesn't match the schema. Model output is untrusted input.
+ */
+export async function generateJson<T>(schema: ZodType<T>, req: Omit<AiRequest, "signal">, label: string): Promise<T> {
+  const order = providerOrder();
+  if (order.length === 0) throw new Error("No AI provider configured (set GEMINI_API_KEY or OPENROUTER_API_KEY + OPENROUTER_MODEL)");
 
-  try {
-    return await run(keys.primary);
-  } catch (err) {
-    console.warn(`${keys.primary} Vision failed:`, (err as Error).message);
+  let lastError: unknown;
+  for (const provider of order) {
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), env().AI_TIMEOUT_MS);
     try {
-      return await run(fallback);
-    } catch (fallbackErr) {
-      console.warn(`${fallback} Vision also failed:`, (fallbackErr as Error).message);
-      throw new Error("All AI providers failed for image evaluation.");
+      const text = await callProvider(provider, { ...req, signal: controller.signal });
+      const parsed = schema.safeParse(extractJson(text));
+      if (!parsed.success) throw new Error(`schema mismatch: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+      log("info", { ai: label, provider, ms: Date.now() - started, ok: true, chars: text.length });
+      return parsed.data;
+    } catch (err) {
+      lastError = err;
+      log("warn", { ai: label, provider, ms: Date.now() - started, ok: false, msg: err instanceof Error ? err.message : String(err) });
+    } finally {
+      clearTimeout(timer);
     }
   }
+  throw new Error(`All AI providers failed for ${label}: ${lastError instanceof Error ? lastError.message : "unknown"}`);
 }

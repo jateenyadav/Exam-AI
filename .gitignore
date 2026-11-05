@@ -36,3 +36,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local databases & env files — never commit
+prisma/*.db
+prisma/*.db-journal
+.env
+.env.*
+!.env.example

@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -23,7 +21,7 @@ interface SessionData {
     marksObtained: number;
     percentage: number;
     sectionBreakdown: string;
-    chapterBreakdown: string;
+    chapterBreakdown: unknown;
   } | null;
 }
 
@@ -43,30 +41,33 @@ const modeLabels: Record<string, string> = {
 
 export default function DashboardPage() {
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
   const [student, setStudent] = useState<StudentData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
 
-  async function fetchDashboard() {
-    if (!email.includes("@")) {
-      toast({ title: "Please enter a valid email", variant: "destructive" });
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const res = await fetch(`/api/student?email=${encodeURIComponent(email)}`);
-      const data = await res.json();
-      if (data.student) {
-        setStudent(data.student);
-      } else {
-        toast({ title: "No account found", description: "Take an exam first to see your dashboard." });
+  // The session cookie identifies the student — no e-mail lookup (that let anyone read anyone's history).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/session");
+        if (res.status === 401) {
+          if (!cancelled) setSignedOut(true);
+          return;
+        }
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!cancelled) setStudent(data.student);
+      } catch {
+        toast({ title: "Couldn't load your dashboard", variant: "destructive" });
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-    } catch {
-      toast({ title: "Error fetching data", variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   const completedSessions = student?.sessions.filter((s) => s.result) || [];
   const subjectStats = getSubjectStats(completedSessions);
@@ -93,25 +94,19 @@ export default function DashboardPage() {
               <CardHeader className="text-center">
                 <CardTitle>Student Dashboard</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Enter your email to view your exam history and progress
+                  {isLoading
+                    ? "Loading your exam history…"
+                    : signedOut
+                      ? "No exams on this device yet. Your history is tied to this browser's secure session."
+                      : "Something went wrong loading your history."}
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="your.email@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && fetchDashboard()}
-                    className="mt-1"
-                  />
-                </div>
-                <Button className="w-full" onClick={fetchDashboard} disabled={isLoading}>
-                  {isLoading ? "Loading..." : "View Dashboard"}
-                </Button>
+                <Link href="/setup" className="block">
+                  <Button className="w-full" disabled={isLoading}>
+                    {isLoading ? "Loading..." : "Take your first exam"}
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           </motion.div>

@@ -67,7 +67,8 @@ export default function SetupPage() {
       case 0: return !!store.mode;
       case 1: return !!store.subject;
       case 2: return store.selectedChapters.length > 0;
-      case 3: return !!localName.trim() && !!localEmail.trim() && localEmail.includes("@");
+      // E-mail is optional (only used to send the report); if given it must look valid.
+      case 3: return !!localName.trim() && (!localEmail.trim() || localEmail.includes("@"));
       default: return false;
     }
   }
@@ -81,7 +82,8 @@ export default function SetupPage() {
     setLoadingMessage("Creating student profile...");
 
     try {
-      const studentRes = await fetch("/api/student", {
+      // Creates (or reuses) this browser's secure session — the cookie identifies the student.
+      const studentRes = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -91,8 +93,10 @@ export default function SetupPage() {
         }),
       });
 
-      if (!studentRes.ok) throw new Error("Failed to create student");
-      const { student } = await studentRes.json();
+      if (!studentRes.ok) {
+        const err = await studentRes.json().catch(() => ({}));
+        throw new Error(err.error || "Couldn't start your session");
+      }
 
       setLoadingProgress(20);
       setLoadingMessage("Generating your personalized question paper...");
@@ -105,7 +109,6 @@ export default function SetupPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          studentId: student.id,
           mode: store.mode,
           subject: store.subject,
           chapters: store.selectedChapters,
@@ -326,7 +329,7 @@ export default function SetupPage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="email">Email Address *</Label>
+                      <Label htmlFor="email">Email (optional — for your report)</Label>
                       <Input
                         id="email"
                         type="email"

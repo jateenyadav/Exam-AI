@@ -7,63 +7,114 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ExamMode {
+  class11
+  class12
+  jee_mains
+  jee_advanced
+}
+
+enum SessionStatus {
+  active
+  auto_submitted
+  completed
+}
+
+enum QuestionType {
+  mcq
+  assertion_reason
+  integer
+  multiple_correct
+  short_answer
+  long_answer
+  case_based
+}
+
+enum Difficulty {
+  easy
+  medium
+  hard
+}
+
+/// A student is identified by their session cookie, never by email.
+/// Email / parent email are optional contact fields used only for result reports.
 model Student {
-  id          String        @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  email       String        @unique
-  parentEmail String?
-  createdAt   DateTime      @default(now())
-  sessions    ExamSession[]
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  email        String?
+  parentEmail  String?
+  createdAt    DateTime      @default(now())
+  sessions     ExamSession[]
+  authSessions AuthSession[]
+
+  @@index([email])
+}
+
+/// Login session. Only the SHA-256 of the cookie token is stored, so a database
+/// leak does not leak usable sessions.
+model AuthSession {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  tokenHash String   @unique
+  studentId String   @db.ObjectId
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
 }
 
 model ExamSession {
-  id             String         @id @default(auto()) @map("_id") @db.ObjectId
-  studentId      String         @db.ObjectId
-  student        Student        @relation(fields: [studentId], references: [id])
-  mode           String
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  studentId      String          @db.ObjectId
+  student        Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mode           ExamMode
   subject        String
-  chapters       String
+  chapters       Json
   totalMarks     Int
   duration       Int
-  startTime      DateTime       @default(now())
+  startTime      DateTime        @default(now())
   endTime        DateTime?
-  status         String         @default("active")
-  violationCount Int            @default(0)
-  autoSubmitted  Boolean        @default(false)
+  status         SessionStatus   @default(active)
+  violationCount Int             @default(0)
+  autoSubmitted  Boolean         @default(false)
   questions      Question[]
   answers        StudentAnswer[]
   result         ExamResult?
-  createdAt      DateTime       @default(now())
+  createdAt      DateTime        @default(now())
+
+  @@index([studentId, createdAt])
 }
 
 model Question {
-  id             String         @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId      String         @db.ObjectId
-  session        ExamSession    @relation(fields: [sessionId], references: [id])
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId      String          @db.ObjectId
+  session        ExamSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   questionNumber Int
   section        String
-  type           String
+  type           QuestionType
   questionText   String
-  options        String?
+  options        Json?
   correctAnswer  String
   solution       String
   marks          Int
-  negativeMarks  Float          @default(0)
+  negativeMarks  Float           @default(0)
   chapterName    String
-  difficulty     String
+  difficulty     Difficulty
   imageUrl       String?
-  hasSubParts    Boolean        @default(false)
-  subParts       String?
+  hasSubParts    Boolean         @default(false)
+  subParts       Json?
   answers        StudentAnswer[]
-  createdAt      DateTime       @default(now())
+  createdAt      DateTime        @default(now())
+
+  @@index([sessionId, questionNumber])
 }
 
 model StudentAnswer {
   id             String      @id @default(auto()) @map("_id") @db.ObjectId
   questionId     String      @db.ObjectId
-  question       Question    @relation(fields: [questionId], references: [id])
+  question       Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
   sessionId      String      @db.ObjectId
-  session        ExamSession @relation(fields: [sessionId], references: [id])
+  session        ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   answerText     String?
   answerImageUrl String?
   isCorrect      Boolean?
@@ -71,27 +122,32 @@ model StudentAnswer {
   aiFeedback     String?
   modelAnswer    String?
   submittedAt    DateTime    @default(now())
+
+  /// One answer per question per exam — re-submits update in place, no races.
+  @@unique([sessionId, questionId])
 }
 
 model ExamResult {
-  id                String      @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId         String      @unique @db.ObjectId
-  session           ExamSession @relation(fields: [sessionId], references: [id])
-  totalMarks        Int
-  marksObtained     Float
-  percentage        Float
-  sectionBreakdown  String
-  chapterBreakdown  String
-  strengths         String?
-  weaknesses        String?
-  recommendations   String?
-  emailSent         Boolean     @default(false)
-  generatedAt       DateTime    @default(now())
+  id               String      @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId        String      @unique @db.ObjectId
+  session          ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  totalMarks       Int
+  marksObtained    Float
+  percentage       Float
+  sectionBreakdown Json
+  chapterBreakdown Json
+  strengths        Json
+  weaknesses       Json
+  recommendations  Json
+  estimatedGrade   String?
+  emailSent        Boolean     @default(false)
+  generatedAt      DateTime    @default(now())
 }
 
-model AppSettings {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  key       String   @unique
-  value     String
-  updatedAt DateTime @updatedAt
+/// Fixed-window counters for rate limits and AI budgets (no extra service needed).
+model RateLimit {
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
+  key     String   @unique
+  count   Int
+  resetAt DateTime
 }

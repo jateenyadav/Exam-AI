@@ -1,78 +1,35 @@
-export async function generateWithOpenRouter(
-  prompt: string,
-  systemPrompt: string,
-  apiKey?: string
-): Promise<string> {
-  const key = apiKey || process.env.OPENROUTER_API_KEY || "";
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: 8000,
-      }),
-    }
-  );
+import type { AiRequest } from "./gemini";
 
-  if (!response.ok) {
-    throw new Error(`OpenRouter API error: ${response.statusText}`);
-  }
+/** OpenRouter (OpenAI-compatible). Any model id works — including free `:free` models. */
+export async function callOpenRouter(req: AiRequest, apiKey: string, model: string, appUrl?: string): Promise<string> {
+  const userContent = req.image
+    ? [
+        { type: "text", text: req.prompt },
+        { type: "image_url", image_url: { url: `data:${req.image.mimeType};base64,${req.image.base64}` } },
+      ]
+    : req.prompt;
 
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    signal: req.signal,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": appUrl || "http://localhost:3000",
+      "X-Title": "ExamAce",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: userContent },
+      ],
+      max_tokens: 8000,
+      temperature: 0.3,
+    }),
+  });
 
-export async function evaluateImageWithOpenRouter(
-  imageBase64: string,
-  mimeType: string,
-  prompt: string,
-  systemPrompt: string,
-  apiKey?: string
-): Promise<string> {
-  const key = apiKey || process.env.OPENROUTER_API_KEY || "";
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              {
-                type: "image_url",
-                image_url: { url: `data:${mimeType};base64,${imageBase64}` },
-              },
-            ],
-          },
-        ],
-        max_tokens: 4000,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`OpenRouter API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
+  if (!response.ok) throw new Error(`OpenRouter ${response.status}`);
+  const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+  return data.choices?.[0]?.message?.content ?? "";
 }

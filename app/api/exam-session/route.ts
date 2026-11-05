@@ -1,53 +1,74 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireStudent } from "@/lib/auth";
+import { HttpError, parseBody, route } from "@/lib/http";
+import { asJson, canReveal, deadlineOf, toClientAnswer, toClientQuestion } from "@/lib/exam";
+import { objectId, sessionUpdateSchema } from "@/lib/validation";
 
-export async function POST(req: NextRequest) {
-  try {
-    const { sessionId, violationCount, autoSubmitted } = await req.json();
+/** POST /api/exam-session — record proctoring events (tab switches) and auto-submit. */
+export const POST = route(async (req) => {
+  const student = await requireStudent(req);
+  const { sessionId, violationCount, autoSubmitted } = await parseBody(req, sessionUpdateSchema);
 
-    if (!sessionId) {
-      return NextResponse.json({ error: "Session ID required" }, { status: 400 });
-    }
+  const session = await prisma.examSession.findUnique({ where: { id: sessionId } });
+  if (!session || session.studentId !== student.id) throw new HttpError(404, "Exam not found");
+  if (session.status !== "active") return NextResponse.json({ session: { id: session.id, status: session.status } });
 
-    const session = await prisma.examSession.update({
-      where: { id: sessionId },
-      data: {
-        ...(violationCount !== undefined && { violationCount }),
-        ...(autoSubmitted !== undefined && { autoSubmitted, status: "auto_submitted" }),
-      },
-    });
+  const updated = await prisma.examSession.update({
+    where: { id: sessionId },
+    data: {
+      // The counter can only go up — a client can't erase recorded violations.
+      ...(violationCount !== undefined && { violationCount: Math.max(session.violationCount, violationCount) }),
+      ...(autoSubmitted && { autoSubmitted: true, status: "auto_submitted" }),
+    },
+  });
+  return NextResponse.json({ session: { id: updated.id, status: updated.status, violationCount: updated.violationCount } });
+});
 
-    return NextResponse.json({ session });
-  } catch (error) {
-    console.error("Exam session update error:", error);
-    return NextResponse.json({ error: "Failed to update session" }, { status: 500 });
-  }
-}
+/** GET /api/exam-session?sessionId= — the exam for the results page. Answers stay hidden while it's active. */
+export const GET = route(async (req) => {
+  const student = await requireStudent(req);
+  const parsed = objectId.safeParse(req.nextUrl.searchParams.get("sessionId"));
+  if (!parsed.success) throw new HttpError(400, "Valid sessionId required");
 
-export async function GET(req: NextRequest) {
-  try {
-    const sessionId = req.nextUrl.searchParams.get("sessionId");
-    if (!sessionId) {
-      return NextResponse.json({ error: "Session ID required" }, { status: 400 });
-    }
+  const session = await prisma.examSession.findUnique({
+    where: { id: parsed.data },
+    include: {
+      student: { select: { id: true, name: true, email: true, parentEmail: true } },
+      questions: { orderBy: { questionNumber: "asc" } },
+      answers: true,
+      result: true,
+    },
+  });
+  if (!session || session.studentId !== student.id) throw new HttpError(404, "Exam not found");
 
-    const session = await prisma.examSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        student: true,
-        questions: { orderBy: { questionNumber: "asc" } },
-        answers: true,
-        result: true,
-      },
-    });
-
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ session });
-  } catch (error) {
-    console.error("Session fetch error:", error);
-    return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
-  }
-}
+  const reveal = canReveal(session);
+  return NextResponse.json({
+    session: {
+      id: session.id,
+      mode: session.mode,
+      subject: session.subject,
+      chapters: asJson<string[]>(session.chapters, []),
+      totalMarks: session.totalMarks,
+      duration: session.duration,
+      startTime: session.startTime,
+      deadline: deadlineOf(session),
+      endTime: session.endTime,
+      status: session.status,
+      violationCount: session.violationCount,
+      student: session.student,
+      questions: session.questions.map((q) => toClientQuestion(q, reveal)),
+      answers: session.answers.map((a) => toClientAnswer(a, reveal)),
+      result: session.result
+        ? {
+            ...session.result,
+            sectionBreakdown: asJson(session.result.sectionBreakdown, {}),
+            chapterBreakdown: asJson(session.result.chapterBreakdown, {}),
+            strengths: asJson(session.result.strengths, []),
+            weaknesses: asJson(session.result.weaknesses, []),
+            recommendations: asJson(session.result.recommendations, []),
+          }
+        : null,
+    },
+  });
+});

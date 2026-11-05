@@ -65,6 +65,14 @@ function ResultsContent() {
     evaluateExam();
   }, [sessionId]);
 
+  function postEvaluate() {
+    return fetch("/api/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+  }
+
   async function evaluateExam() {
     setIsEvaluating(true);
     setEvalProgress(10);
@@ -74,16 +82,20 @@ function ResultsContent() {
     }, 1500);
 
     try {
-      const evalRes = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
+      // 409 = another tab is already grading this exam — wait and retry.
+      let evalRes = await postEvaluate();
+      for (let attempt = 0; evalRes.status === 409 && attempt < 6; attempt++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        evalRes = await postEvaluate();
+      }
 
       clearInterval(progressInterval);
       setEvalProgress(90);
 
-      if (!evalRes.ok) throw new Error("Evaluation failed");
+      if (!evalRes.ok) {
+        const err = await evalRes.json().catch(() => ({}));
+        throw new Error(err.error || "Evaluation failed");
+      }
       const { result: evalResult } = await evalRes.json();
 
       const sessionRes = await fetch(`/api/exam-session?sessionId=${sessionId}`);

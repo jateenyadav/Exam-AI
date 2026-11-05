@@ -1,4 +1,7 @@
-import { generateText } from "@/lib/ai";
+import type { Prisma } from "@prisma/client";
+import { generateJson } from "@/lib/ai";
+import { mapLimit, normalizeDifficulty, normalizeType } from "@/lib/exam";
+import { generatedQuestionsSchema } from "@/lib/validation";
 import {
   ExamMode,
   getExamPattern,
@@ -33,41 +36,26 @@ interface GeneratedQuestion {
   }[];
 }
 
+export type PaperQuestion = Omit<Prisma.QuestionCreateWithoutSessionInput, "answers">;
+
 export async function generatePaper(
   mode: ExamMode,
   subject: string,
   selectedChapters: string[]
 ) {
   const pattern = getExamPattern(mode, subject);
-  const allQuestions: Array<{
-    questionNumber: number;
-    section: string;
-    type: string;
-    questionText: string;
-    options: string | null;
-    correctAnswer: string;
-    solution: string;
-    marks: number;
-    negativeMarks: number;
-    chapterName: string;
-    difficulty: string;
-    hasSubParts: boolean;
-    subParts: string | null;
-  }> = [];
 
-  let questionNumber = 1;
-
-  for (const section of pattern.sections) {
-    const sectionQuestions = await generateSectionQuestions(
-      mode,
-      subject,
-      selectedChapters,
-      section,
-      questionNumber
-    );
-    allQuestions.push(...sectionQuestions);
-    questionNumber += section.questionCount;
-  }
+  // Sections are independent — generate up to 3 at once to stay inside the serverless time limit.
+  let next = 1;
+  const starts = pattern.sections.map((section) => {
+    const at = next;
+    next += section.questionCount;
+    return at;
+  });
+  const perSection = await mapLimit(pattern.sections, 3, (section, i) =>
+    generateSectionQuestions(mode, subject, selectedChapters, section, starts[i]),
+  );
+  const allQuestions = perSection.flat();
 
   return { questions: allQuestions, pattern };
 }
@@ -90,14 +78,9 @@ async function generateSectionQuestions(
           : "JEE Advanced";
 
   let parsed: GeneratedQuestion[];
-
   try {
     const prompt = buildPromptForSection(modeLabel, subject, chaptersStr, section);
-    const response = await generateText(prompt, SYSTEM_PROMPT);
-    const cleaned = response.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const json = JSON.parse(cleaned);
-    const raw: GeneratedQuestion[] = Array.isArray(json) ? json : json.questions || [json];
-    parsed = raw.filter((q) => q && typeof q.questionText === "string" && typeof q.correctAnswer === "string");
+    parsed = (await generateJson(generatedQuestionsSchema, { prompt, system: SYSTEM_PROMPT }, `paper:${section.code}`)) as GeneratedQuestion[];
   } catch (err) {
     console.warn(`AI generation failed for ${section.name}, using local question bank:`, (err as Error).message);
     parsed = getLocalQuestions(mode, subject, chapters, section);
@@ -105,26 +88,28 @@ async function generateSectionQuestions(
 
   if (parsed.length < section.questionCount) {
     const fallback = getLocalQuestions(mode, subject, chapters, section);
-    while (parsed.length < section.questionCount) {
+    while (parsed.length < section.questionCount && fallback.length > 0) {
       parsed.push(fallback[parsed.length % fallback.length]);
     }
   }
 
-  return parsed.slice(0, section.questionCount).map((q, idx) => ({
-    questionNumber: startNumber + idx,
-    section: section.code,
-    type: section.type,
-    questionText: q.questionText || "Question text not available",
-    options: q.options ? JSON.stringify(q.options) : null,
-    correctAnswer: q.correctAnswer || "Answer not available",
-    solution: q.solution || "Solution not available",
-    marks: section.marksPerQuestion,
-    negativeMarks: section.negativeMarks,
-    chapterName: q.chapterName || chapters[idx % chapters.length],
-    difficulty: q.difficulty || "medium",
-    hasSubParts: q.hasSubParts || false,
-    subParts: q.subParts ? JSON.stringify(q.subParts) : null,
-  }));
+  return parsed.slice(0, section.questionCount).map(
+    (q, idx): PaperQuestion => ({
+      questionNumber: startNumber + idx,
+      section: section.code,
+      type: normalizeType(section.type),
+      questionText: q.questionText || "Question text not available",
+      options: q.options?.length ? (q.options as Prisma.InputJsonValue) : undefined,
+      correctAnswer: q.correctAnswer || "Answer not available",
+      solution: q.solution || "Solution not available",
+      marks: section.marksPerQuestion,
+      negativeMarks: section.negativeMarks,
+      chapterName: chapters.includes(q.chapterName ?? "") ? q.chapterName! : chapters[idx % chapters.length],
+      difficulty: normalizeDifficulty(q.difficulty),
+      hasSubParts: Boolean(q.hasSubParts && q.subParts?.length),
+      subParts: q.subParts?.length ? (q.subParts as Prisma.InputJsonValue) : undefined,
+    }),
+  );
 }
 
 function buildPromptForSection(

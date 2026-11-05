@@ -1,44 +1,28 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
-export async function generateWithGemini(
-  prompt: string,
-  systemPrompt: string,
-  apiKey?: string
-): Promise<string> {
-  const key = apiKey || process.env.GEMINI_API_KEY || "";
-  const genAI = new GoogleGenerativeAI(key);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
-  });
-
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+export interface AiRequest {
+  prompt: string;
+  system: string;
+  image?: { base64: string; mimeType: string };
+  signal?: AbortSignal;
 }
 
-export async function evaluateImageWithGemini(
-  imageBase64: string,
-  mimeType: string,
-  prompt: string,
-  systemPrompt: string,
-  apiKey?: string
-): Promise<string> {
-  const key = apiKey || process.env.GEMINI_API_KEY || "";
-  const genAI = new GoogleGenerativeAI(key);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
-  });
+/** Gemini via the current Google Gen AI SDK, asking for JSON output. */
+export async function callGemini(req: AiRequest, apiKey: string, model: string): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey });
+  const contents = req.image
+    ? [{ inlineData: { mimeType: req.image.mimeType, data: req.image.base64 } }, { text: req.prompt }]
+    : req.prompt;
 
-  const result = await model.generateContent([
-    prompt,
-    {
-      inlineData: {
-        data: imageBase64,
-        mimeType: mimeType as "image/jpeg" | "image/png" | "image/webp",
-      },
+  const res = await ai.models.generateContent({
+    model,
+    contents,
+    config: {
+      systemInstruction: req.system,
+      responseMimeType: "application/json",
+      temperature: 0.3,
+      abortSignal: req.signal,
     },
-  ]);
-
-  return result.response.text();
+  });
+  return res.text ?? "";
 }

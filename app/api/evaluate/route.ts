@@ -1,240 +1,168 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { ExamResult } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { requireStudent } from "@/lib/auth";
+import { HttpError, parseBody, route } from "@/lib/http";
+import { asJson, mapLimit } from "@/lib/exam";
 import {
-  evaluateMCQ,
   evaluateInteger,
+  evaluateMCQ,
   evaluateMultipleCorrect,
   evaluateWrittenAnswer,
   generateDetailedReport,
+  type Breakdown,
+  type EvaluationResult,
 } from "@/lib/evaluator";
+import { sessionIdSchema } from "@/lib/validation";
 
 export const maxDuration = 60;
 
-export async function POST(req: NextRequest) {
-  try {
-    const { sessionId } = await req.json();
+/** An evaluation that started but never produced a result (crash/timeout) can be retried after this. */
+const STALE_CLAIM_MS = 90_000;
 
-    if (!sessionId) {
-      return NextResponse.json({ error: "Session ID required" }, { status: 400 });
+/**
+ * POST /api/evaluate — grade a finished exam exactly once.
+ * 1. ownership check
+ * 2. idempotent: an existing result is returned as-is (no repeat AI cost)
+ * 3. atomic claim (active → completed) so two tabs can't grade concurrently
+ * 4. objective questions scored deterministically; written answers by AI, in parallel, marks clamped
+ */
+export const POST = route(async (req) => {
+  const student = await requireStudent(req);
+  const { sessionId } = await parseBody(req, sessionIdSchema);
+
+  const owned = await prisma.examSession.findUnique({ where: { id: sessionId }, include: { result: true } });
+  if (!owned || owned.studentId !== student.id) throw new HttpError(404, "Exam not found");
+  if (owned.result) return NextResponse.json({ result: serializeResult(owned.result) });
+
+  const claimed = await prisma.examSession.updateMany({
+    where: {
+      id: sessionId,
+      OR: [
+        { status: { in: ["active", "auto_submitted"] } },
+        { status: "completed", endTime: { lt: new Date(Date.now() - STALE_CLAIM_MS) } },
+      ],
+    },
+    data: { status: "completed", endTime: new Date() },
+  });
+  if (claimed.count === 0) throw new HttpError(409, "Evaluation is already in progress — refresh in a few seconds");
+
+  const session = await prisma.examSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    include: { questions: { orderBy: { questionNumber: "asc" } }, answers: true },
+  });
+
+  const answersByQuestion = new Map(session.answers.map((a) => [a.questionId, a]));
+
+  const graded = await mapLimit(session.questions, 4, async (question): Promise<EvaluationResult> => {
+    const answer = answersByQuestion.get(question.id);
+    if (!answer || (!answer.answerText && !answer.answerImageUrl)) {
+      return { marksAwarded: 0, isCorrect: false, feedback: "Not attempted", modelAnswer: question.correctAnswer };
     }
-
-    await prisma.examSession.update({
-      where: { id: sessionId },
-      data: { status: "completed", endTime: new Date() },
-    });
-
-    const session = await prisma.examSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        questions: { orderBy: { questionNumber: "asc" } },
-        answers: true,
-      },
-    });
-
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    const sectionBreakdown: Record<string, { total: number; obtained: number }> = {};
-    const chapterBreakdown: Record<string, { total: number; obtained: number; questions: number }> = {};
-    const wrongAnswers: Array<{
-      question: string;
-      studentAnswer: string;
-      correctAnswer: string;
-      chapter: string;
-    }> = [];
-    let totalObtained = 0;
-
-    for (const question of session.questions) {
-      const answer = session.answers.find((a) => a.questionId === question.id);
-
-      if (!sectionBreakdown[question.section]) {
-        sectionBreakdown[question.section] = { total: 0, obtained: 0 };
-      }
-      sectionBreakdown[question.section].total += question.marks;
-
-      if (!chapterBreakdown[question.chapterName]) {
-        chapterBreakdown[question.chapterName] = { total: 0, obtained: 0, questions: 0 };
-      }
-      chapterBreakdown[question.chapterName].total += question.marks;
-      chapterBreakdown[question.chapterName].questions += 1;
-
-      let result;
-
-      if (!answer) {
-        result = {
-          marksAwarded: 0,
-          isCorrect: false,
-          feedback: "Not attempted",
-          modelAnswer: question.correctAnswer,
-        };
-      } else if (question.type === "mcq" || question.type === "assertion_reason") {
-        result = await evaluateMCQ(
-          answer.answerText || "",
-          question.correctAnswer,
+    switch (question.type) {
+      case "mcq":
+      case "assertion_reason":
+        return evaluateMCQ(answer.answerText ?? "", question.correctAnswer, question.marks, question.negativeMarks);
+      case "integer":
+        return evaluateInteger(answer.answerText ?? "", question.correctAnswer, question.marks);
+      case "multiple_correct":
+        return evaluateMultipleCorrect(
+          asJson<string[]>(answer.answerText, []),
+          question.correctAnswer.split(",").map((a) => a.trim()),
           question.marks,
-          question.negativeMarks
+          question.negativeMarks,
         );
-      } else if (question.type === "integer") {
-        result = await evaluateInteger(
-          answer.answerText || "",
-          question.correctAnswer,
-          question.marks
-        );
-      } else if (question.type === "multiple_correct") {
-        const studentAnswers = answer.answerText
-          ? JSON.parse(answer.answerText)
-          : [];
-        const correctAnswers = question.correctAnswer.split(",").map((a) => a.trim());
-        result = await evaluateMultipleCorrect(
-          studentAnswers,
-          correctAnswers,
-          question.marks,
-          question.negativeMarks
-        );
-      } else if (answer.answerImageUrl) {
-        try {
-          let base64: string;
-          let mimeType: string;
-
-          if (answer.answerImageUrl.startsWith("data:")) {
-            const match = answer.answerImageUrl.match(/^data:([^;]+);base64,(.+)$/);
-            if (!match) throw new Error("Invalid data URL");
-            mimeType = match[1];
-            base64 = match[2];
-          } else {
-            throw new Error("Image not available (filesystem storage not supported in production)");
-          }
-
-          result = await evaluateWrittenAnswer(
-            base64,
-            mimeType,
-            question.questionText,
-            question.correctAnswer,
-            question.solution,
-            question.marks,
-            question.type
-          );
-        } catch {
-          result = {
+      default: {
+        const match = answer.answerImageUrl?.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+        if (!match) {
+          return {
             marksAwarded: 0,
             isCorrect: false,
-            feedback: "Could not read the answer image for evaluation.",
-            modelAnswer: question.solution,
+            feedback: "Written answers are graded from a photo of your working — no photo was uploaded.",
+            modelAnswer: question.solution || question.correctAnswer,
           };
         }
-      } else {
-        result = {
-          marksAwarded: 0,
-          isCorrect: false,
-          feedback: answer.answerText
-            ? "Written answer submitted as text – partial evaluation."
-            : "Not attempted",
-          modelAnswer: question.solution || question.correctAnswer,
-        };
-      }
-
-      if (answer) {
-        await prisma.studentAnswer.update({
-          where: { id: answer.id },
-          data: {
-            isCorrect: result.isCorrect,
-            marksAwarded: result.marksAwarded,
-            aiFeedback: result.feedback,
-            modelAnswer: result.modelAnswer,
-          },
-        });
-      } else {
-        await prisma.studentAnswer.create({
-          data: {
-            sessionId,
-            questionId: question.id,
-            isCorrect: false,
-            marksAwarded: 0,
-            aiFeedback: "Not attempted",
-            modelAnswer: question.correctAnswer,
-          },
-        });
-      }
-
-      const marks = Math.max(0, result.marksAwarded);
-      totalObtained += result.marksAwarded;
-      sectionBreakdown[question.section].obtained += marks;
-      chapterBreakdown[question.chapterName].obtained += marks;
-
-      if (!result.isCorrect && answer?.answerText) {
-        wrongAnswers.push({
-          question: question.questionText.substring(0, 100),
-          studentAnswer: answer.answerText || "Image answer",
+        return evaluateWrittenAnswer({
+          imageBase64: match[2],
+          mimeType: match[1],
+          questionText: question.questionText,
           correctAnswer: question.correctAnswer,
-          chapter: question.chapterName,
+          solution: question.solution,
+          marks: question.marks,
+          questionType: question.type,
         });
       }
     }
+  });
 
-    const finalScore = Math.max(0, totalObtained);
-    const percentage = (finalScore / session.totalMarks) * 100;
+  const sectionBreakdown: Breakdown = {};
+  const chapterBreakdown: Breakdown = {};
+  const weakChapters = new Set<string>();
+  let total = 0;
 
-    let report;
-    try {
-      report = await generateDetailedReport({
-        mode: session.mode,
-        subject: session.subject,
-        totalMarks: session.totalMarks,
-        marksObtained: finalScore,
-        sectionBreakdown,
-        chapterBreakdown,
-        wrongAnswers,
-      });
-    } catch {
-      report = {
-        strengths: ["Completed the exam"],
-        weaknesses: ["Report generation unavailable"],
-        recommendations: ["Practice more questions"],
-        estimatedGrade: percentage >= 90 ? "A1" : percentage >= 75 ? "A2" : percentage >= 60 ? "B1" : "B2",
-      };
-    }
+  session.questions.forEach((q, i) => {
+    const r = graded[i];
+    sectionBreakdown[q.section] ??= { total: 0, obtained: 0 };
+    chapterBreakdown[q.chapterName] ??= { total: 0, obtained: 0, questions: 0 };
+    sectionBreakdown[q.section].total += q.marks;
+    chapterBreakdown[q.chapterName].total += q.marks;
+    chapterBreakdown[q.chapterName].questions! += 1;
+    sectionBreakdown[q.section].obtained += Math.max(0, r.marksAwarded);
+    chapterBreakdown[q.chapterName].obtained += Math.max(0, r.marksAwarded);
+    total += r.marksAwarded; // negative marking counts toward the total
+    if (!r.isCorrect && answersByQuestion.has(q.id)) weakChapters.add(q.chapterName);
+  });
 
-    const examResult = await prisma.examResult.upsert({
-      where: { sessionId },
-      create: {
-        sessionId,
-        totalMarks: session.totalMarks,
-        marksObtained: finalScore,
-        percentage,
-        sectionBreakdown: JSON.stringify(sectionBreakdown),
-        chapterBreakdown: JSON.stringify(chapterBreakdown),
-        strengths: JSON.stringify(report.strengths),
-        weaknesses: JSON.stringify(report.weaknesses),
-        recommendations: JSON.stringify(report.recommendations),
-      },
-      update: {
-        marksObtained: finalScore,
-        percentage,
-        sectionBreakdown: JSON.stringify(sectionBreakdown),
-        chapterBreakdown: JSON.stringify(chapterBreakdown),
-        strengths: JSON.stringify(report.strengths),
-        weaknesses: JSON.stringify(report.weaknesses),
-        recommendations: JSON.stringify(report.recommendations),
-      },
-    });
+  // Persist per-question grades (one upsert per question; the unique index prevents duplicates).
+  await Promise.all(
+    session.questions.map((q, i) =>
+      prisma.studentAnswer.upsert({
+        where: { sessionId_questionId: { sessionId, questionId: q.id } },
+        create: { sessionId, questionId: q.id, isCorrect: graded[i].isCorrect, marksAwarded: graded[i].marksAwarded, aiFeedback: graded[i].feedback, modelAnswer: graded[i].modelAnswer },
+        update: { isCorrect: graded[i].isCorrect, marksAwarded: graded[i].marksAwarded, aiFeedback: graded[i].feedback, modelAnswer: graded[i].modelAnswer },
+      }),
+    ),
+  );
 
-    return NextResponse.json({
-      result: {
-        ...examResult,
-        sectionBreakdown,
-        chapterBreakdown,
-        strengths: report.strengths,
-        weaknesses: report.weaknesses,
-        recommendations: report.recommendations,
-        estimatedGrade: report.estimatedGrade,
-      },
-    });
-  } catch (error) {
-    console.error("Evaluation error:", error);
-    return NextResponse.json(
-      { error: "Evaluation failed. Please try again." },
-      { status: 500 }
-    );
-  }
+  const marksObtained = Math.max(0, total);
+  const percentage = session.totalMarks > 0 ? (marksObtained / session.totalMarks) * 100 : 0;
+  const report = await generateDetailedReport({
+    mode: session.mode,
+    subject: session.subject,
+    totalMarks: session.totalMarks,
+    marksObtained,
+    sectionBreakdown,
+    chapterBreakdown,
+    weakChapters: Array.from(weakChapters),
+  });
+
+  const result = await prisma.examResult.upsert({
+    where: { sessionId },
+    create: {
+      sessionId,
+      totalMarks: session.totalMarks,
+      marksObtained,
+      percentage,
+      sectionBreakdown,
+      chapterBreakdown,
+      strengths: report.strengths,
+      weaknesses: report.weaknesses,
+      recommendations: report.recommendations,
+      estimatedGrade: report.estimatedGrade,
+    },
+    update: {},
+  });
+
+  return NextResponse.json({ result: serializeResult(result) });
+});
+
+function serializeResult(r: ExamResult) {
+  return {
+    ...r,
+    sectionBreakdown: asJson(r.sectionBreakdown, {}),
+    chapterBreakdown: asJson(r.chapterBreakdown, {}),
+    strengths: asJson<string[]>(r.strengths, []),
+    weaknesses: asJson<string[]>(r.weaknesses, []),
+    recommendations: asJson<string[]>(r.recommendations, []),
+  };
 }

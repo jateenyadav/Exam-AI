@@ -1,94 +1,51 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { env } from "@/lib/env";
+import { requireStudent } from "@/lib/auth";
+import { HttpError, parseBody, route } from "@/lib/http";
+import { DAY, enforce } from "@/lib/rate-limit";
+import { toClientQuestion } from "@/lib/exam";
 import { generatePaper } from "@/lib/paper-generator";
-import { ExamMode } from "@/lib/syllabus";
+import { getChaptersForSubject, getSubjectsForMode, type ExamMode } from "@/lib/syllabus";
+import { generatePaperSchema } from "@/lib/validation";
 
 export const maxDuration = 60;
 
-export async function POST(req: NextRequest) {
-  try {
-    const { studentId, mode, subject, chapters } = await req.json();
+export const POST = route(async (req) => {
+  const student = await requireStudent(req);
+  const { mode, subject, chapters } = await parseBody(req, generatePaperSchema);
 
-    if (!studentId || !mode || !subject || !chapters?.length) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+  // Only real syllabus entries reach the prompt — no free-text prompt injection via chapter names.
+  if (!getSubjectsForMode(mode).includes(subject)) throw new HttpError(400, "Unknown subject for this exam");
+  const known = new Set(getChaptersForSubject(mode, subject).map((c: { name: string }) => c.name));
+  const picked = Array.from(new Set(chapters));
+  if (!picked.every((c) => known.has(c))) throw new HttpError(400, "One or more chapters are not in the syllabus");
 
-    const { questions, pattern } = await generatePaper(
-      mode as ExamMode,
+  // Cost controls: per-student and global daily caps on AI-generated papers.
+  const e = env();
+  await enforce(`paper:${student.id}`, e.PAPERS_PER_STUDENT_PER_DAY, DAY, `Daily limit reached (${e.PAPERS_PER_STUDENT_PER_DAY} papers). Come back tomorrow!`);
+  await enforce("paper:global", e.PAPERS_GLOBAL_PER_DAY, DAY, "ExamAce is very busy today — please try again tomorrow.");
+
+  const { questions, pattern } = await generatePaper(mode as ExamMode, subject, picked);
+
+  const session = await prisma.examSession.create({
+    data: {
+      studentId: student.id,
+      mode,
       subject,
-      chapters
-    );
-
-    const validQuestions = questions.map((q) => ({
-      ...q,
-      correctAnswer: q.correctAnswer || "Answer not available",
-      questionText: q.questionText || "Question text not available",
-      solution: q.solution || "Solution not available",
-    }));
-
-    const session = await prisma.examSession.create({
-      data: {
-        studentId,
-        mode,
-        subject,
-        chapters: JSON.stringify(chapters),
-        totalMarks: pattern.totalMarks,
-        duration: pattern.duration,
-        status: "active",
-        questions: {
-          create: validQuestions.map((q) => ({
-            questionNumber: q.questionNumber,
-            section: q.section,
-            type: q.type,
-            questionText: q.questionText,
-            options: q.options,
-            correctAnswer: q.correctAnswer,
-            solution: q.solution,
-            marks: q.marks,
-            negativeMarks: q.negativeMarks,
-            chapterName: q.chapterName,
-            difficulty: q.difficulty,
-            hasSubParts: q.hasSubParts,
-            subParts: q.subParts,
-          })),
-        },
-      },
-      include: {
-        questions: {
-          orderBy: { questionNumber: "asc" },
-        },
-      },
-    });
-
-    const clientQuestions = session.questions.map((q) => ({
-      id: q.id,
-      questionNumber: q.questionNumber,
-      section: q.section,
-      type: q.type,
-      questionText: q.questionText,
-      options: q.options ? JSON.parse(q.options) : null,
-      marks: q.marks,
-      negativeMarks: q.negativeMarks,
-      chapterName: q.chapterName,
-      difficulty: q.difficulty,
-      hasSubParts: q.hasSubParts,
-      subParts: q.subParts ? JSON.parse(q.subParts) : null,
-    }));
-
-    return NextResponse.json({
-      sessionId: session.id,
-      questions: clientQuestions,
+      chapters: picked,
       totalMarks: pattern.totalMarks,
       duration: pattern.duration,
-    });
-  } catch (error) {
-    console.error("Paper generation error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate paper. Please try again." },
-      { status: 500 }
-    );
-  }
-}
+      status: "active",
+      questions: { create: questions },
+    },
+    include: { questions: { orderBy: { questionNumber: "asc" } } },
+  });
+
+  return NextResponse.json({
+    sessionId: session.id,
+    questions: session.questions.map((q) => toClientQuestion(q, false)),
+    totalMarks: pattern.totalMarks,
+    duration: pattern.duration,
+  });
+});
