@@ -1,15 +1,14 @@
-import { execSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { NextRequest } from "next/server";
+import { sh, startDatabase } from "./db";
 
 /*
-  End-to-end API flow against a real MongoDB replica set (in-memory) and the
+  End-to-end API flow against a real MongoDB replica set (in-memory locally, a container in CI) and the
   real Prisma client — no mocks. No AI key is set, so paper generation uses the
   built-in question bank and grading is deterministic.
 */
 
-let replSet: MongoMemoryReplSet;
+let db: Awaited<ReturnType<typeof startDatabase>> | undefined;
 type Handlers = Record<string, (req: NextRequest) => Promise<Response>>;
 let api: { session: Handlers; paper: Handlers; examSession: Handlers; submit: Handlers; evaluate: Handlers };
 
@@ -35,11 +34,11 @@ async function startStudent(name: string) {
 }
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-  process.env.DATABASE_URL = replSet.getUri("examace_test");
+  db = await startDatabase("examace_flow");
+  process.env.DATABASE_URL = db.uri;
   delete process.env.GEMINI_API_KEY;
   delete process.env.OPENROUTER_API_KEY;
-  execSync("npx prisma db push --skip-generate", { env: process.env, stdio: "ignore" });
+  sh("npx prisma db push --skip-generate");
 
   api = {
     session: await import("@/app/api/session/route"),
@@ -53,7 +52,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const { prisma } = await import("@/lib/db");
   await prisma.$disconnect();
-  await replSet?.stop();
+  await db?.stop();
 });
 
 describe("full exam flow (real database)", () => {

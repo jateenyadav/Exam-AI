@@ -1,7 +1,6 @@
-import { execSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MongoMemoryReplSet } from "mongodb-memory-server";
 import type { PrismaClient } from "@prisma/client";
+import { sh, startDatabase } from "./db";
 
 /*
   Upgrade path for the live database: seed documents exactly as the v1 app
@@ -10,7 +9,7 @@ import type { PrismaClient } from "@prisma/client";
   then read everything back through the v2 Prisma client.
 */
 
-let replSet: MongoMemoryReplSet;
+let db: Awaited<ReturnType<typeof startDatabase>> | undefined;
 let prisma: PrismaClient;
 
 const oid = (hex: string) => ({ $oid: hex.padEnd(24, "0") });
@@ -20,13 +19,9 @@ const SESSION = "b1";
 const Q_NUM = "c1";
 const Q_MCQ = "c2";
 
-function sh(cmd: string, extra: Record<string, string> = {}) {
-  return execSync(cmd, { env: { ...process.env, ...extra }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-}
-
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-  process.env.DATABASE_URL = replSet.getUri("examace_legacy");
+  db = await startDatabase("examace_legacy");
+  process.env.DATABASE_URL = db.uri;
   ({ prisma } = await import("@/lib/db"));
   const raw = (cmd: Record<string, unknown>) => prisma.$runCommandRaw(cmd as never);
 
@@ -74,7 +69,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma?.$disconnect();
-  await replSet?.stop();
+  await db?.stop();
 });
 
 describe("v1 → v2 database migration", () => {

@@ -8,10 +8,14 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A healthy run takes ~3 min; never let a stuck step burn hours of minutes again.
+    timeout-minutes: 15
     env:
       # Build-time placeholder only — no real database or AI keys are needed in CI.
       DATABASE_URL: mongodb://localhost:27017/examace
       NEXT_TELEMETRY_DISABLED: "1"
+      # CI uses a real MongoDB container (below), so skip the in-memory binary download.
+      MONGOMS_DISABLE_POSTINSTALL: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +26,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      # Full API flow against a real in-memory MongoDB replica set
+      # Prisma needs a replica set: one-node MongoDB 7 in Docker
+      - name: Start MongoDB replica set
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do docker exec mongo mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' && break; sleep 2; done
+          docker exec mongo mongosh --quiet --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27017" }] })'
+          for i in $(seq 1 30); do docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true && exit 0; sleep 1; done
+          echo "MongoDB replica set did not become primary" && exit 1
+      # Full API flow + v1 → v2 data migration against that real database
       - run: npm run test:integration
+        env:
+          TEST_MONGO_URL: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
       - run: npm run build
