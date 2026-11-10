@@ -5,6 +5,10 @@
 
 **Live:** https://exam-ai-tau-bay.vercel.app
 
+[![ExamAce demo: generate a paper, sit the exam, get handwritten answers graded](docs/demo.gif)](docs/demo.mp4)
+
+▶ [Watch the full 20-second demo with sound](docs/demo.mp4)
+
 ExamAce generates a full exam paper in the real CBSE / JEE pattern, runs it in a timed, proctored exam room, and grades it — objective questions deterministically, **handwritten answers from a phone photo** with a vision model — then produces a section- and chapter-wise report.
 
 ![ExamAce](docs/screenshot.jpg)
