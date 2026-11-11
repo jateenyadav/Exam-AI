@@ -39,8 +39,11 @@ export function route(handler: Handler): Handler {
         log("warn", { ...base, status: 400, msg: "validation" });
         return withId(NextResponse.json({ error: "Invalid request", details: formatIssues(err) }, { status: 400 }), requestId);
       }
-      log("error", { ...base, status: 500, ms: Date.now() - started, msg: err instanceof Error ? err.message : String(err) });
-      return withId(NextResponse.json({ error: "Something went wrong. Please try again.", requestId }, { status: 500 }), requestId);
+      // Prisma error codes (e.g. P1001 "database unreachable") say what failed without leaking details.
+      const code = typeof (err as { code?: unknown })?.code === "string" && /^P\d{4}$/.test((err as { code: string }).code) ? (err as { code: string }).code : undefined;
+      const kind = err instanceof Error && err.constructor?.name?.startsWith("Prisma") ? err.constructor.name : undefined;
+      log("error", { ...base, status: 500, ms: Date.now() - started, code, kind, msg: err instanceof Error ? err.message : String(err) });
+      return withId(NextResponse.json({ error: "Something went wrong. Please try again.", requestId, ...(code && { code }), ...(kind && { kind }) }, { status: 500 }), requestId);
     }
   };
 }

@@ -38,8 +38,23 @@ export async function hit(key: string, limit: number, windowMs: number, attempt 
   } catch (err) {
     // Two first-ever hits can race on the unique `key` index; the retry then finds the document.
     if (attempt === 0 && String((err as Error).message).includes("E11000")) return hit(key, limit, windowMs, 1);
-    throw err;
+    // If the raw command isn't allowed on this database, fall back to the (non-atomic) Prisma path
+    // rather than blocking every request.
+    console.warn(JSON.stringify({ level: "warn", msg: "atomic rate limit failed, using fallback", err: String((err as Error).message).slice(0, 200) }));
+    return hitFallback(key, limit, windowMs);
   }
+}
+
+async function hitFallback(key: string, limit: number, windowMs: number) {
+  const now = new Date();
+  const current = await prisma.rateLimit.findUnique({ where: { key } });
+  if (!current || current.resetAt <= now) {
+    const resetAt = new Date(now.getTime() + windowMs);
+    await prisma.rateLimit.upsert({ where: { key }, create: { key, count: 1, resetAt }, update: { count: 1, resetAt } });
+    return { ok: true, remaining: limit - 1, resetAt };
+  }
+  const updated = await prisma.rateLimit.update({ where: { key }, data: { count: { increment: 1 } } });
+  return { ok: updated.count <= limit, remaining: Math.max(0, limit - updated.count), resetAt: updated.resetAt };
 }
 
 export async function enforce(key: string, limit: number, windowMs: number, message: string) {
