@@ -6,6 +6,7 @@ import { clientIp, parseBody, route } from "@/lib/http";
 import { enforce, HOUR } from "@/lib/rate-limit";
 import { asJson } from "@/lib/exam";
 import { startSessionSchema } from "@/lib/validation";
+import { withLegacyEmailHeal } from "@/lib/legacy-index";
 
 /**
  * POST /api/session — start (or continue) a student session.
@@ -18,17 +19,21 @@ export const POST = route(async (req) => {
   const existing = await getStudent(req);
 
   if (existing) {
-    const student = await prisma.student.update({
-      where: { id: existing.id },
-      data: { name: body.name, email: body.email ?? existing.email, parentEmail: body.parentEmail ?? existing.parentEmail },
-    });
+    const student = await withLegacyEmailHeal(() =>
+      prisma.student.update({
+        where: { id: existing.id },
+        data: { name: body.name, email: body.email ?? existing.email, parentEmail: body.parentEmail ?? existing.parentEmail },
+      }),
+    );
     return NextResponse.json({ student: publicStudent(student) });
   }
 
   await enforce(`signup:${clientIp(req)}`, env().SIGNUPS_PER_IP_PER_HOUR, HOUR, "Too many new sessions from this network. Try again later.");
-  const student = await prisma.student.create({
-    data: { name: body.name, email: body.email ?? null, parentEmail: body.parentEmail ?? null },
-  });
+  const student = await withLegacyEmailHeal(() =>
+    prisma.student.create({
+      data: { name: body.name, email: body.email ?? null, parentEmail: body.parentEmail ?? null },
+    }),
+  );
   const { token, expiresAt } = await createAuthSession(student.id);
   const res = NextResponse.json({ student: publicStudent(student) }, { status: 201 });
   setSessionCookie(res, token, expiresAt);
