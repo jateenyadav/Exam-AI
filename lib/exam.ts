@@ -15,7 +15,7 @@ export function isOpenForAnswers(session: Pick<ExamSession, "status" | "startTim
 
 /** Answers + solutions are revealed only once the exam is finished. */
 export function canReveal(session: Pick<ExamSession, "status">) {
-  return session.status !== "active";
+  return session.status === "completed" || session.status === "auto_submitted";
 }
 
 /** Values stored before the Json migration were JSON strings — accept both shapes. */

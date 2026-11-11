@@ -10,7 +10,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "test:integration": "INTEGRATION=1 vitest run tests/integration"
+    "test:integration": "INTEGRATION=1 vitest run tests/integration --no-file-parallelism"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

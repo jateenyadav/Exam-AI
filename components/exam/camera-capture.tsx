@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useExamStore } from "@/lib/store/exam-store";
+import { compressImage } from "@/lib/image";
 
 interface CameraCaptureProps {
   questionId: string;
@@ -17,6 +18,7 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(existingImage || null);
+  const [error, setError] = useState<string | null>(null);
   const setCameraActive = useExamStore((s) => s.setCameraActive);
 
   const startCamera = useCallback(async () => {
@@ -58,10 +60,15 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
 
-    const imageData = canvas.toDataURL("image/jpeg", 0.85);
-    setCapturedImage(imageData);
-    onCapture(imageData);
+    const raw = canvas.toDataURL("image/jpeg", 0.9);
     stopCamera();
+    compressImage(raw)
+      .then((imageData) => {
+        setError(null);
+        setCapturedImage(imageData);
+        onCapture(imageData);
+      })
+      .catch((err: Error) => setError(err.message));
   }, [onCapture, stopCamera]);
 
   const handleFileUpload = useCallback(
@@ -70,13 +77,15 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
       setCameraActive(false);
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setCapturedImage(result);
-        onCapture(result);
-      };
-      reader.readAsDataURL(file);
+      // Big phone photos are shrunk to fit the 2 MB limit instead of being rejected later.
+      compressImage(file)
+        .then((result) => {
+          setError(null);
+          setCapturedImage(result);
+          onCapture(result);
+        })
+        .catch((err: Error) => setError(err.message))
+        .finally(() => { e.target.value = ""; });
     },
     [onCapture, setCameraActive]
   );
@@ -98,6 +107,11 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
 
   return (
     <div className="space-y-3">
+      {error && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
       {capturedImage ? (
         <div className="space-y-3">
           <div className="relative rounded-lg overflow-hidden border bg-muted">

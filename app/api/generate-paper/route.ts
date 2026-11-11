@@ -4,13 +4,16 @@ import { env } from "@/lib/env";
 import { requireStudent } from "@/lib/auth";
 import { HttpError, parseBody, route } from "@/lib/http";
 import { DAY, enforce } from "@/lib/rate-limit";
-import { toClientQuestion } from "@/lib/exam";
-import { generatePaper } from "@/lib/paper-generator";
+import { sectionPlan } from "@/lib/paper-generator";
 import { getChaptersForSubject, getSubjectsForMode, type ExamMode } from "@/lib/syllabus";
 import { generatePaperSchema } from "@/lib/validation";
 
-export const maxDuration = 60;
-
+/**
+ * POST /api/generate-paper — step 1 of 3. Checks the request, applies the daily caps and creates an
+ * empty exam in "generating" state. The client then builds it one section per request
+ * (/api/generate-paper/section) and starts the clock (/api/generate-paper/start). Splitting it up
+ * keeps every request well inside the serverless time limit, even for 9-section full mocks.
+ */
 export const POST = route(async (req) => {
   const student = await requireStudent(req);
   const { mode, subject, chapters } = await parseBody(req, generatePaperSchema);
@@ -26,8 +29,7 @@ export const POST = route(async (req) => {
   await enforce(`paper:${student.id}`, e.PAPERS_PER_STUDENT_PER_DAY, DAY, `Daily limit reached (${e.PAPERS_PER_STUDENT_PER_DAY} papers). Come back tomorrow!`);
   await enforce("paper:global", e.PAPERS_GLOBAL_PER_DAY, DAY, "ExamAce is very busy today — please try again tomorrow.");
 
-  const { questions, pattern } = await generatePaper(mode as ExamMode, subject, picked);
-
+  const { pattern, sections } = sectionPlan(mode as ExamMode, subject);
   const session = await prisma.examSession.create({
     data: {
       studentId: student.id,
@@ -36,15 +38,13 @@ export const POST = route(async (req) => {
       chapters: picked,
       totalMarks: pattern.totalMarks,
       duration: pattern.duration,
-      status: "active",
-      questions: { create: questions },
+      status: "generating",
     },
-    include: { questions: { orderBy: { questionNumber: "asc" } } },
   });
 
   return NextResponse.json({
     sessionId: session.id,
-    questions: session.questions.map((q) => toClientQuestion(q, false)),
+    sections: sections.map(({ section }, index) => ({ index, name: section.name, questionCount: section.questionCount })),
     totalMarks: pattern.totalMarks,
     duration: pattern.duration,
   });

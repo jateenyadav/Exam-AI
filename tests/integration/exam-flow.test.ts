@@ -10,7 +10,7 @@ import { sh, startDatabase } from "./db";
 
 let db: Awaited<ReturnType<typeof startDatabase>> | undefined;
 type Handlers = Record<string, (req: NextRequest) => Promise<Response>>;
-let api: { session: Handlers; paper: Handlers; examSession: Handlers; submit: Handlers; evaluate: Handlers };
+let api: { session: Handlers; paper: Handlers; section: Handlers; start: Handlers; examSession: Handlers; submit: Handlers; evaluate: Handlers; review: Handlers; insights: Handlers; explain: Handlers };
 
 const base = "http://localhost";
 
@@ -43,9 +43,14 @@ beforeAll(async () => {
   api = {
     session: await import("@/app/api/session/route"),
     paper: await import("@/app/api/generate-paper/route"),
+    section: await import("@/app/api/generate-paper/section/route"),
+    start: await import("@/app/api/generate-paper/start/route"),
     examSession: await import("@/app/api/exam-session/route"),
     submit: await import("@/app/api/submit-answer/route"),
     evaluate: await import("@/app/api/evaluate/route"),
+    review: await import("@/app/api/review/route"),
+    insights: await import("@/app/api/insights/route"),
+    explain: await import("@/app/api/explain/route"),
   } as unknown as typeof api;
 }, 180_000);
 
@@ -60,18 +65,46 @@ describe("full exam flow (real database)", () => {
   let sessionId = "";
   let questions: Array<{ id: string; type: string; options?: string[] | null }> = [];
 
-  it("starts a session and generates a paper", async () => {
+  it("starts a session and generates a paper section by section", async () => {
     cookie = await startStudent("Asha");
-    const res = await api.paper.POST(
+    const created = await api.paper.POST(
       req("/api/generate-paper", { method: "POST", cookie, json: { mode: "jee_mains", subject: "physics", chapters: ["Physics and Measurement", "Kinematics"] } }),
     );
+    const plan = await created.json();
+    expect(created.status, JSON.stringify(plan)).toBe(200);
+    sessionId = plan.sessionId;
+    expect(plan.sections.length).toBeGreaterThan(0);
+
+    // Starting before every section is built is refused.
+    const early = await api.start.POST(req("/api/generate-paper/start", { method: "POST", cookie, json: { sessionId } }));
+    expect(early.status).toBe(409);
+
+    // A half-built paper is not visible as an exam and reveals nothing.
+    const half = await api.examSession.GET(req(`/api/exam-session?sessionId=${sessionId}`, { cookie }));
+    expect(JSON.stringify(await half.json())).not.toContain('"correctAnswer"');
+
+    for (const s of plan.sections) {
+      const res = await api.section.POST(req("/api/generate-paper/section", { method: "POST", cookie, json: { sessionId, index: s.index } }));
+      expect(res.status).toBe(200);
+    }
+    // Retrying a section doesn't duplicate its questions.
+    await api.section.POST(req("/api/generate-paper/section", { method: "POST", cookie, json: { sessionId, index: 0 } }));
+
+    const res = await api.start.POST(req("/api/generate-paper/start", { method: "POST", cookie, json: { sessionId } }));
     const body = await res.json();
     expect(res.status, JSON.stringify(body)).toBe(200);
-    sessionId = body.sessionId;
     questions = body.questions;
     expect(questions.length).toBeGreaterThan(0);
+    const numbers = (body.questions as { questionNumber: number }[]).map((q) => q.questionNumber);
+    expect(new Set(numbers).size).toBe(numbers.length);
     expect(JSON.stringify(body)).not.toContain('"correctAnswer"');
   }, 60_000);
+
+  it("won't let another student build or start this paper", async () => {
+    const intruder = await startStudent("Eve");
+    const res = await api.start.POST(req("/api/generate-paper/start", { method: "POST", cookie: intruder, json: { sessionId } }));
+    expect(res.status).toBe(404);
+  });
 
   it("answers an MCQ and keeps the answer key hidden while active", async () => {
     const mcq = questions.find((q) => q.type === "mcq")!;
@@ -94,6 +127,21 @@ describe("full exam flow (real database)", () => {
     expect(view.status).toBe(404);
     const grade = await api.evaluate.POST(req("/api/evaluate", { method: "POST", cookie: intruder, json: { sessionId } }));
     expect(grade.status).toBe(404);
+  });
+
+  it("won't explain answers while the exam is still running", async () => {
+    const res = await api.explain.POST(req("/api/explain", { method: "POST", cookie, json: { sessionId, questionId: questions[0].id } }));
+    expect(res.status).toBe(409);
+  });
+
+  it("saves a wrong typed integer answer so it becomes a flashcard", async () => {
+    const integer = questions.find((q) => q.type === "integer")!;
+    const fd = new FormData();
+    fd.append("sessionId", sessionId);
+    fd.append("questionId", integer.id);
+    fd.append("answerText", "987654");
+    const res = await api.submit.POST(req("/api/submit-answer", { method: "POST", cookie, form: fd }));
+    expect(res.status).toBe(200);
   });
 
   it("grades once, reveals answers after, and is idempotent", async () => {
@@ -124,5 +172,42 @@ describe("full exam flow (real database)", () => {
     const res = await api.session.GET(req("/api/session", { cookie }));
     const { student } = await res.json();
     expect(student.sessions.map((s: { id: string }) => s.id)).toContain(sessionId);
+  });
+
+  it("adds mistakes to the notebook and schedules them with SM-2", async () => {
+    const res = await api.review.GET(req("/api/review", { cookie }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    const card = body.cards[0];
+    const graded = await api.review.POST(req("/api/review", { method: "POST", cookie, json: { cardId: card.id, rating: "good" } }));
+    expect(graded.status).toBe(200);
+    expect((await graded.json()).intervalDays).toBe(1);
+    const after = await (await api.review.GET(req("/api/review", { cookie }))).json();
+    expect(after.cards.find((c: { id: string }) => c.id === card.id)).toBeUndefined(); // not due again today
+  });
+
+  it("another student can't rate my cards", async () => {
+    const mine = await (await api.review.GET(req("/api/review", { cookie }))).json();
+    const intruder = await startStudent("Trudy");
+    const any = mine.cards[0]?.id ?? "000000000000000000000000";
+    const res = await api.review.POST(req("/api/review", { method: "POST", cookie: intruder, json: { cardId: any, rating: "easy" } }));
+    expect(res.status).toBe(404);
+  });
+
+  it("reports weak topics from results", async () => {
+    const res = await api.insights.GET(req("/api/insights", { cookie }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.examsAnalysed).toBe(1);
+    expect(Array.isArray(body.topics)).toBe(true);
+  });
+
+  it("explains a mistake after grading, falling back to the solution without AI keys", async () => {
+    const integer = questions.find((q) => q.type === "integer")!;
+    const res = await api.explain.POST(req("/api/explain", { method: "POST", cookie, json: { sessionId, questionId: integer.id } }));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Correct answer:");
   });
 });

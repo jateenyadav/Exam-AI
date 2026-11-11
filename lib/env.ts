@@ -12,7 +12,10 @@ const schema = z.object({
   GEMINI_MODEL: z.string().default("gemini-flash-latest"),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().optional(),
-  AI_PROVIDER: z.enum(["gemini", "openrouter"]).optional(),
+  // Groq (free tier) is tried first for text-only requests; photos always go to a vision model.
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
+  AI_PROVIDER: z.enum(["gemini", "groq", "openrouter"]).optional(),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
 
   // Abuse / cost controls

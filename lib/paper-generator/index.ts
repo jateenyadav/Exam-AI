@@ -38,34 +38,34 @@ interface GeneratedQuestion {
 
 export type PaperQuestion = Omit<Prisma.QuestionCreateWithoutSessionInput, "answers">;
 
-export async function generatePaper(
-  mode: ExamMode,
-  subject: string,
-  selectedChapters: string[]
-) {
+/** The sections of a paper with their first question numbers — deterministic for a mode + subject. */
+export function sectionPlan(mode: ExamMode, subject: string) {
   const pattern = getExamPattern(mode, subject);
-
-  // Sections are independent — generate up to 3 at once to stay inside the serverless time limit.
   let next = 1;
-  const starts = pattern.sections.map((section) => {
-    const at = next;
+  const sections = pattern.sections.map((section) => {
+    const startNumber = next;
     next += section.questionCount;
-    return at;
+    return { section, startNumber };
   });
-  const perSection = await mapLimit(pattern.sections, 3, (section, i) =>
-    generateSectionQuestions(mode, subject, selectedChapters, section, starts[i]),
-  );
-  const allQuestions = perSection.flat();
-
-  return { questions: allQuestions, pattern };
+  return { pattern, sections };
 }
 
-async function generateSectionQuestions(
+/** Whole paper in one call (used by tests and small papers). Big mocks are built section by section. */
+export async function generatePaper(mode: ExamMode, subject: string, selectedChapters: string[]) {
+  const { pattern, sections } = sectionPlan(mode, subject);
+  const perSection = await mapLimit(sections, 3, ({ section, startNumber }) =>
+    generateSectionQuestions(mode, subject, selectedChapters, section, startNumber),
+  );
+  return { questions: perSection.flat(), pattern };
+}
+
+export async function generateSectionQuestions(
   mode: ExamMode,
   subject: string,
   chapters: string[],
   section: SectionPattern,
-  startNumber: number
+  startNumber: number,
+  budgetMs?: number,
 ) {
   const chaptersStr = chapters.join(", ");
   const modeLabel =
@@ -78,12 +78,14 @@ async function generateSectionQuestions(
           : "JEE Advanced";
 
   let parsed: GeneratedQuestion[];
+  let fromBank = false;
   try {
     const prompt = buildPromptForSection(modeLabel, subject, chaptersStr, section);
-    parsed = (await generateJson(generatedQuestionsSchema, { prompt, system: SYSTEM_PROMPT }, `paper:${section.code}`)) as GeneratedQuestion[];
+    parsed = (await generateJson(generatedQuestionsSchema, { prompt, system: SYSTEM_PROMPT }, `paper:${section.code}`, { budgetMs })) as GeneratedQuestion[];
   } catch (err) {
     console.warn(`AI generation failed for ${section.name}, using local question bank:`, (err as Error).message);
     parsed = getLocalQuestions(mode, subject, chapters, section);
+    fromBank = true;
   }
 
   if (parsed.length < section.questionCount) {
@@ -104,7 +106,8 @@ async function generateSectionQuestions(
       solution: q.solution || "Solution not available",
       marks: section.marksPerQuestion,
       negativeMarks: section.negativeMarks,
-      chapterName: chapters.includes(q.chapterName ?? "") ? q.chapterName! : chapters[idx % chapters.length],
+      // AI output: trust its chapter only if it's one the student picked; bank questions carry their real chapter.
+      chapterName: chapters.includes(q.chapterName ?? "") || fromBank ? (q.chapterName || chapters[idx % chapters.length]) : chapters[idx % chapters.length],
       difficulty: normalizeDifficulty(q.difficulty),
       hasSubParts: Boolean(q.hasSubParts && q.subParts?.length),
       subParts: q.subParts?.length ? (q.subParts as Prisma.InputJsonValue) : undefined,

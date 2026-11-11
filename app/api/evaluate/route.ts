@@ -73,18 +73,12 @@ export const POST = route(async (req) => {
           question.negativeMarks,
         );
       default: {
+        // Typed answer, photo of working, or both — all are graded (typed-only answers used to score 0).
         const match = answer.answerImageUrl?.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
-        if (!match) {
-          return {
-            marksAwarded: 0,
-            isCorrect: false,
-            feedback: "Written answers are graded from a photo of your working — no photo was uploaded.",
-            modelAnswer: question.solution || question.correctAnswer,
-          };
-        }
         return evaluateWrittenAnswer({
-          imageBase64: match[2],
-          mimeType: match[1],
+          imageBase64: match?.[2],
+          mimeType: match?.[1],
+          answerText: answer.answerText ?? undefined,
           questionText: question.questionText,
           correctAnswer: question.correctAnswer,
           solution: question.solution,
@@ -152,6 +146,33 @@ export const POST = route(async (req) => {
     },
     update: {},
   });
+
+  // Mistake notebook: every attempted-but-wrong question becomes a spaced-repetition flashcard.
+  // Best effort — grading must not fail because of this.
+  const mistakes = session.questions.filter((q, i) => !graded[i].isCorrect && answersByQuestion.has(q.id));
+  await Promise.all(
+    mistakes.map((q) =>
+      prisma.reviewCard
+        .upsert({
+          where: { studentId_questionId: { studentId: student.id, questionId: q.id } },
+          create: {
+            studentId: student.id,
+            questionId: q.id,
+            sessionId,
+            mode: session.mode,
+            subject: session.subject,
+            chapterName: q.chapterName,
+            type: q.type,
+            questionText: q.questionText,
+            options: q.options ?? undefined,
+            correctAnswer: q.correctAnswer,
+            solution: q.solution,
+          },
+          update: {},
+        })
+        .catch(() => null),
+    ),
+  );
 
   return NextResponse.json({ result: serializeResult(result) });
 });

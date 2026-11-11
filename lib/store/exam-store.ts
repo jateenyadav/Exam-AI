@@ -51,6 +51,8 @@ interface ExamStore extends ExamSetupState, ExamActiveState {
   toggleChapter: (chapter: string) => void;
   setStudentInfo: (name: string, email: string, parentEmail?: string) => void;
   initExam: (sessionId: string, questions: ExamQuestion[], totalTime: number) => void;
+  /** After a refresh: put the questions back (from the server) without touching saved answers. */
+  resumeExam: (sessionId: string, questions: ExamQuestion[], timeRemaining: number, totalTime: number, answerImages: Record<string, string>) => void;
   goToQuestion: (index: number) => void;
   nextQuestion: () => void;
   prevQuestion: () => void;
@@ -126,6 +128,24 @@ export const useExamStore = create<ExamStore>()(
           violationCount: 0,
           isSubmitted: false,
           startTime: Date.now(),
+        });
+      },
+
+      resumeExam: (sessionId, questions, timeRemaining, totalTime, answerImages) => {
+        const { questionStatuses, currentQuestionIndex } = get();
+        const statuses: Record<string, QuestionStatus> = {};
+        questions.forEach((q) => {
+          statuses[q.id] = questionStatuses[q.id] ?? (answerImages[q.id] ? "answered" : "not_visited");
+        });
+        set({
+          sessionId,
+          questions,
+          totalTime,
+          timeRemaining: Math.max(0, Math.floor(timeRemaining)),
+          currentQuestionIndex: Math.min(currentQuestionIndex, Math.max(0, questions.length - 1)),
+          answerImages,
+          questionStatuses: statuses,
+          isSubmitted: false,
         });
       },
 

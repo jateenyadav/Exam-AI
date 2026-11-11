@@ -92,3 +92,45 @@ describe("request validation", () => {
     expect(generatePaperSchema.safeParse({ mode: "hacker_mode", subject: "physics", chapters: ["Units"] }).success).toBe(false);
   });
 });
+
+import { getLocalQuestions, sectionSubject } from "@/lib/paper-generator/question-bank";
+import { getChaptersForSubject, getExamPattern } from "@/lib/syllabus";
+
+describe("offline question bank stays on-subject", () => {
+  it("full mock sections get their own subject, not physics", () => {
+    const pattern = getExamPattern("jee_mains", "full_mock");
+    const chem = pattern.sections.find((s) => s.code === "chemistry_a")!;
+    expect(sectionSubject("full_mock", chem)).toBe("chemistry");
+    const chemChapters = new Set(getChaptersForSubject("jee_mains", "chemistry").map((c) => c.name));
+    const qs = getLocalQuestions("jee_mains", "full_mock", ["Atomic Structure"], chem);
+    expect(qs.length).toBe(chem.questionCount);
+    expect(qs.every((q) => chemChapters.has(q.chapterName))).toBe(true);
+  });
+
+  it("English gets English tasks, never physics", () => {
+    const pattern = getExamPattern("class12", "english");
+    for (const section of pattern.sections) {
+      const qs = getLocalQuestions("class12", "english", ["The Last Lesson"], section);
+      expect(qs.length).toBe(section.questionCount);
+      expect(qs.every((q) => !/kinetic|velocity|newton/i.test(q.questionText))).toBe(true);
+    }
+  });
+
+  it("keeps real chapter labels instead of rotating picked chapters", () => {
+    const pattern = getExamPattern("jee_mains", "physics");
+    const qs = getLocalQuestions("jee_mains", "physics", ["Kinematics"], pattern.sections[0]);
+    const physicsChapters = new Set(getChaptersForSubject("jee_mains", "physics").map((c) => c.name));
+    expect(qs.every((q) => physicsChapters.has(q.chapterName) || q.chapterName === "Kinematics")).toBe(true);
+  });
+});
+
+describe("integer sections", () => {
+  it("only get numeric answers, in every mode and subject", () => {
+    for (const [mode, subject] of [["jee_mains", "physics"], ["jee_mains", "chemistry"], ["jee_mains", "mathematics"], ["jee_advanced", "full_mock"], ["jee_mains", "full_mock"]] as const) {
+      for (const section of getExamPattern(mode, subject).sections.filter((s) => s.type === "integer")) {
+        const qs = getLocalQuestions(mode, subject, getChaptersForSubject(mode, subject === "full_mock" ? "physics" : subject).slice(0, 2).map((c) => c.name), section);
+        expect(qs.every((q) => /^-?\d+(\.\d+)?$/.test(q.correctAnswer.trim())), `${mode}/${subject}/${section.code}`).toBe(true);
+      }
+    }
+  });
+});

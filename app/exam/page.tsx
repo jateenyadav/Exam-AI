@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { CameraCapture } from "@/components/exam/camera-capture";
+import { uploadAnswers, type AnswerUpload } from "@/lib/submit";
+import { clearPhotos, deletePhoto, loadPhotos, savePhoto } from "@/lib/photo-store";
 
 const STATUS_COLORS: Record<QuestionStatus, string> = {
   not_visited: "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
@@ -34,6 +36,19 @@ export default function ExamPage() {
   const [showTimeWarning, setShowTimeWarning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const warningShownRef = useRef<Set<number>>(new Set());
+  const submittingRef = useRef(false);
+  // A refresh also fires blur/visibilitychange. Refreshing is safe now (the exam is restored),
+  // and the request would be cut off by the unload anyway, so it isn't counted as a violation.
+  const unloadingRef = useRef(false);
+  useEffect(() => {
+    const mark = () => { unloadingRef.current = true; };
+    window.addEventListener("beforeunload", mark);
+    window.addEventListener("pagehide", mark);
+    return () => {
+      window.removeEventListener("beforeunload", mark);
+      window.removeEventListener("pagehide", mark);
+    };
+  }, []);
 
   const {
     sessionId,
@@ -51,16 +66,52 @@ export default function ExamPage() {
 
   const currentQuestion = questions[currentQuestionIndex];
 
+  const [restoring, setRestoring] = useState(false);
+  // The saved exam is read from localStorage after the first render. Deciding before that
+  // finished sent students to /setup on every refresh, so wait for it.
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    if (!sessionId || questions.length === 0) {
-      router.push("/setup");
-      return;
-    }
-    if (isSubmitted) {
+    const unsub = useExamStore.persist.onFinishHydration(() => setHydrated(true));
+    setHydrated(useExamStore.persist.hasHydrated());
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (isSubmitted && sessionId) {
       router.push("/results?sessionId=" + sessionId);
       return;
     }
-  }, [sessionId, questions, isSubmitted, router]);
+    if (!sessionId) {
+      router.push("/setup");
+      return;
+    }
+    if (questions.length > 0 || restoring) return;
+    // A refresh drops the questions (they aren't kept in localStorage): fetch them back from the
+    // server, which also gives the real deadline, and reload photos from IndexedDB.
+    setRestoring(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/exam-session?sessionId=${sessionId}`);
+        if (!res.ok) throw new Error(String(res.status));
+        const { session } = await res.json();
+        if (session.status !== "active" || new Date(session.deadline).getTime() <= Date.now()) {
+          router.push("/results?sessionId=" + sessionId);
+          return;
+        }
+        const photos = await loadPhotos(sessionId);
+        // Timer = real time left (duration is in seconds; the server's grace period is not shown).
+        const secondsLeft = (new Date(session.startTime).getTime() + session.duration * 1000 - Date.now()) / 1000;
+        store.resumeExam(sessionId, session.questions, secondsLeft, session.duration, photos);
+        toast({ title: "Exam restored", description: "Your answers were kept. The timer kept running." });
+      } catch {
+        router.push("/setup");
+      } finally {
+        setRestoring(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, sessionId, questions.length, isSubmitted]);
 
   useEffect(() => {
     timerRef.current = setInterval(() => {
@@ -147,6 +198,8 @@ export default function ExamPage() {
   }, [sessionId]);
 
   const handleViolation = useCallback((message: string) => {
+    // Leaving the page after pressing Submit fires blur/visibility events — those aren't cheating.
+    if (submittingRef.current || unloadingRef.current) return;
     const newCount = violationCount + 1;
     store.addViolation();
 
@@ -167,7 +220,8 @@ export default function ExamPage() {
   }, [violationCount, sessionId]);
 
   async function handleSubmit(auto = false) {
-    if (isSubmitting) return;
+    if (isSubmitting || submittingRef.current) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     setShowSubmitDialog(false);
 
@@ -176,27 +230,47 @@ export default function ExamPage() {
         await document.exitFullscreen().catch(() => {});
       }
 
-      // Submit all answers to DB
+      // Build one upload per answer (text) and per photo, then send them with checks + retries.
+      const labelFor = (qId: string) => {
+        const idx = questions.findIndex((q) => q.id === qId);
+        return idx >= 0 ? `Q${idx + 1}` : "a question";
+      };
+      const uploads: AnswerUpload[] = [];
       for (const [qId, answer] of Object.entries(answers)) {
         const formData = new FormData();
         formData.append("sessionId", sessionId!);
         formData.append("questionId", qId);
-        if (typeof answer === "string") {
-          formData.append("answerText", answer);
-        } else {
-          formData.append("answerText", JSON.stringify(answer));
-        }
-        await fetch("/api/submit-answer", { method: "POST", body: formData });
+        formData.append("answerText", typeof answer === "string" ? answer : JSON.stringify(answer));
+        uploads.push({ questionId: qId, body: formData, label: labelFor(qId) });
       }
-
-      // Submit image answers
       for (const [qId, imageData] of Object.entries(answerImages)) {
         const blob = await (await fetch(imageData)).blob();
         const formData = new FormData();
         formData.append("sessionId", sessionId!);
         formData.append("questionId", qId);
         formData.append("answerImage", blob, `${qId}.jpg`);
-        await fetch("/api/submit-answer", { method: "POST", body: formData });
+        uploads.push({ questionId: qId, body: formData, label: `${labelFor(qId)} photo` });
+      }
+
+      const failures = await uploadAnswers(uploads);
+      const retryable = failures.filter((f) => !f.permanent);
+      if (retryable.length > 0 && !auto) {
+        // Don't leave the exam with unsaved answers: let the student retry.
+        toast({
+          title: `${retryable.length} answer(s) not saved yet`,
+          description: `${retryable.map((f) => f.label).join(", ")} — ${retryable[0].message}. Tap Submit again to retry.`,
+          variant: "destructive",
+        });
+        submittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+      if (failures.length > 0) {
+        toast({
+          title: "Some answers could not be saved",
+          description: failures.map((f) => `${f.label}: ${f.message}`).join(" · "),
+          variant: "destructive",
+        });
       }
 
       if (auto) {
@@ -208,10 +282,12 @@ export default function ExamPage() {
       }
 
       store.submitExam();
+      void clearPhotos();
       router.push("/results?sessionId=" + sessionId);
     } catch (error) {
       console.error("Submit error:", error);
-      toast({ title: "Submission failed", description: "Retrying...", variant: "destructive" });
+      toast({ title: "Submission failed", description: "Please tap Submit again.", variant: "destructive" });
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -238,7 +314,11 @@ export default function ExamPage() {
   const isMultipleCorrect = currentQuestion?.type === "multiple_correct";
   const isWrittenType = !isMCQType && !isIntegerType && !isMultipleCorrect;
 
-  if (!currentQuestion) return null;
+  if (!currentQuestion) {
+    return restoring ? (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">Restoring your exam…</div>
+    ) : null;
+  }
 
   const counts = getAnswerCounts();
 
@@ -435,7 +515,10 @@ export default function ExamPage() {
                     <CameraCapture
                       questionId={currentQuestion.id}
                       existingImage={answerImages[currentQuestion.id]}
-                      onCapture={(imageData) => store.setAnswerImage(currentQuestion.id, imageData)}
+                      onCapture={(imageData) => {
+                        store.setAnswerImage(currentQuestion.id, imageData);
+                        void savePhoto(sessionId!, currentQuestion.id, imageData);
+                      }}
                     />
                     <div className="mt-4">
                       <Label className="text-sm text-muted-foreground">Or type your answer:</Label>
@@ -454,7 +537,10 @@ export default function ExamPage() {
             {/* Navigation Buttons */}
             <div className="mt-6 flex items-center justify-between flex-wrap gap-3">
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => store.clearAnswer(currentQuestion.id)}>
+                <Button variant="outline" size="sm" onClick={() => {
+                  store.clearAnswer(currentQuestion.id);
+                  void deletePhoto(sessionId!, currentQuestion.id);
+                }}>
                   Clear Response
                 </Button>
                 <Button

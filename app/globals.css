@@ -9,59 +9,63 @@
 }
 
 @layer base {
+  /* "Study desk" theme: warm paper background, calm indigo, soft mint for success.
+     Low contrast between surfaces and no loud colours, so it stays easy on the eyes in long sessions. */
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 40 33% 98%;
+    --foreground: 232 28% 17%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 232 28% 17%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --chart-1: 221 83% 53%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --radius: 0.625rem;
+    --popover-foreground: 232 28% 17%;
+    --primary: 245 55% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 245 45% 96%;
+    --secondary-foreground: 245 40% 30%;
+    --muted: 40 20% 95%;
+    --muted-foreground: 232 12% 45%;
+    --accent: 158 45% 94%;
+    --accent-foreground: 160 50% 24%;
+    --destructive: 2 70% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 14% 89%;
+    --input: 40 14% 86%;
+    --ring: 245 55% 56%;
+    --success: 158 50% 38%;
+    --chart-1: 245 55% 56%;
+    --chart-2: 158 50% 42%;
+    --chart-3: 35 85% 55%;
+    --chart-4: 200 65% 50%;
+    --chart-5: 330 55% 58%;
+    --radius: 0.875rem;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 8%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 6%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 224 76% 48%;
-    --chart-1: 221 83% 53%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --background: 232 30% 9%;
+    --foreground: 40 25% 94%;
+    --card: 232 26% 13%;
+    --card-foreground: 40 25% 94%;
+    --popover: 232 26% 13%;
+    --popover-foreground: 40 25% 94%;
+    --primary: 245 75% 72%;
+    --primary-foreground: 232 30% 10%;
+    --secondary: 245 25% 20%;
+    --secondary-foreground: 245 60% 88%;
+    --muted: 232 20% 18%;
+    --muted-foreground: 232 12% 68%;
+    --accent: 160 30% 18%;
+    --accent-foreground: 158 55% 78%;
+    --destructive: 2 60% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 232 18% 22%;
+    --input: 232 18% 24%;
+    --ring: 245 75% 72%;
+    --success: 158 50% 55%;
+    --chart-1: 245 75% 72%;
+    --chart-2: 158 50% 55%;
+    --chart-3: 35 85% 62%;
+    --chart-4: 200 65% 60%;
+    --chart-5: 330 55% 66%;
   }
 }
 
@@ -71,11 +75,30 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* A very soft wash of colour at the top of the page — calm, not distracting. */
+    background-image: radial-gradient(1200px 420px at 50% -120px, hsl(var(--primary) / 0.07), transparent 70%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
+}
+
+/* Students who prefer less motion get none. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
 @media print {
   .no-print {
     display: none !important;
+  }
+  body {
+    background: #fff !important;
   }
 }

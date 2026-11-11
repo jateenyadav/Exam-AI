@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import { ExplainMistake } from "@/components/exam/explain-mistake";
 
 interface ResultData {
   totalMarks: number;
@@ -58,6 +59,7 @@ function ResultsContent() {
   const [answers, setAnswers] = useState<AnswerDetail[]>([]);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [hasEmail, setHasEmail] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<{ mode: string; subject: string; studentName: string } | null>(null);
 
   useEffect(() => {
@@ -125,11 +127,13 @@ function ResultsContent() {
         subject: session.subject,
         studentName: session.student.name,
       });
+      const canEmail = Boolean(session.student.email || session.student.parentEmail);
+      setHasEmail(canEmail);
 
       setEvalProgress(100);
 
-      // Auto-send results email
-      sendEmail();
+      // Auto-send the report only if the student gave an e-mail (otherwise it's a guaranteed 400).
+      if (canEmail) sendEmail();
     } catch (error) {
       toast({
         title: "Evaluation Error",
@@ -226,11 +230,13 @@ function ResultsContent() {
           </Link>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => window.print()}>
-              Print Report
+              Print / Save PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={sendEmail} disabled={isSendingEmail || emailSent}>
-              {emailSent ? "Email Sent ✓" : isSendingEmail ? "Sending..." : "Resend Email"}
-            </Button>
+            {hasEmail && (
+              <Button variant="outline" size="sm" onClick={sendEmail} disabled={isSendingEmail || emailSent}>
+                {emailSent ? "Email Sent ✓" : isSendingEmail ? "Sending..." : "Resend Email"}
+              </Button>
+            )}
             <Link href="/setup">
               <Button size="sm">New Exam</Button>
             </Link>
@@ -412,6 +418,10 @@ function ResultsContent() {
                         <p className="text-xs text-blue-600 font-medium mb-1">Feedback:</p>
                         <p className="text-sm">{answer.aiFeedback}</p>
                       </div>
+                    )}
+
+                    {!isCorrect && answer && sessionId && (
+                      <ExplainMistake sessionId={sessionId} questionId={q.id} attempted={Boolean(answer.answerText || answer.answerImageUrl)} />
                     )}
 
                     {!isCorrect && q.solution && (

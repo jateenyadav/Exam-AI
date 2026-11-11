@@ -1,4 +1,4 @@
-import { ExamMode, SectionPattern } from "@/lib/syllabus";
+import { ExamMode, SectionPattern, getChaptersForSubject } from "@/lib/syllabus";
 
 interface Q {
   questionText: string;
@@ -126,7 +126,26 @@ const integerType: Q[] = [
   { questionText: "If the velocity of a body doubles, its kinetic energy becomes how many times?", correctAnswer: "4", solution: "KE = (1/2)mv². If v→2v: KE' = (1/2)m(2v)² = 4×(1/2)mv² = 4 times", difficulty: "easy", chapterName: "Work Energy and Power" },
 ];
 
+// English has no fixed answers per chapter, so the offline bank uses skill-based tasks
+// (labelled honestly as "Writing Skills" / "Grammar") that the AI examiner can grade.
+const englishMCQ: Q[] = [
+  { questionText: "Choose the correctly punctuated sentence:", options: ["A) Its raining, take your umbrella.","B) It's raining; take your umbrella.","C) Its' raining take your umbrella.","D) It's raining take, your umbrella."], correctAnswer: "B", solution: "\"It's\" = it is; a semicolon joins two related independent clauses.", difficulty: "easy", chapterName: "Grammar" },
+  { questionText: "Identify the passive voice form of: \"The committee approved the proposal.\"", options: ["A) The proposal approves the committee.","B) The proposal was approved by the committee.","C) The committee was approved by the proposal.","D) The proposal is approving the committee."], correctAnswer: "B", solution: "Object becomes subject + was + past participle + by + agent.", difficulty: "easy", chapterName: "Grammar" },
+  { questionText: "Choose the word closest in meaning to \"meticulous\":", options: ["A) Careless","B) Hasty","C) Thorough","D) Generous"], correctAnswer: "C", solution: "Meticulous means showing great attention to detail — thorough.", difficulty: "medium", chapterName: "Vocabulary" },
+  { questionText: "Select the sentence in reported speech for: She said, \"I am reading a book.\"", options: ["A) She said that she is reading a book.","B) She said that she was reading a book.","C) She said that I was reading a book.","D) She says she read a book."], correctAnswer: "B", solution: "Present continuous shifts to past continuous; pronoun changes to \"she\".", difficulty: "medium", chapterName: "Grammar" },
+];
+const englishShort: Q[] = [
+  { questionText: "You are the Head Girl/Boy of your school. Write a notice (50 words) informing students about an inter-school debate competition.", correctAnswer: "Format: NOTICE, school name, date, heading; content: event, date, time, venue, eligibility, contact; signature with designation.", solution: "Marks for format (1), content (2), expression (2). Keep within ~50 words.", difficulty: "easy", chapterName: "Writing Skills" },
+  { questionText: "Write a letter to the editor of a newspaper (120–150 words) about the problem of plastic waste in your locality.", correctAnswer: "Formal letter format; problem described with examples; effects; suggestions; polite conclusion.", solution: "Marks for format, organisation of ideas, accuracy and fluency.", difficulty: "medium", chapterName: "Writing Skills" },
+  { questionText: "Write an article (120–150 words) on \"The role of technology in education\".", correctAnswer: "Title, byline; introduction; benefits and concerns with examples; balanced conclusion.", solution: "Marks for content, organisation, and language.", difficulty: "medium", chapterName: "Writing Skills" },
+  { questionText: "Write a formal invitation (50 words) for the annual science exhibition of your school.", correctAnswer: "Third-person formal invitation: host, event, date, time, venue, RSVP.", solution: "Marks for format, content completeness, and expression.", difficulty: "easy", chapterName: "Writing Skills" },
+];
+
 const banks: Record<string, Q[]> = {
+  english_mcq: englishMCQ,
+  english_short: englishShort,
+  english_long: englishShort,
+  english_case: englishShort,
   physics_mcq: physicsMCQ,
   chemistry_mcq: chemistryMCQ,
   mathematics_mcq: mathsMCQ,
@@ -147,10 +166,39 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function pickSubject(mode: ExamMode, subject: string): string {
-  if (subject === "full_mock") return "physics";
-  return subject;
+/** A full mock mixes subjects — read each section's subject from its code (physics_a, chem_b, maths_c…). */
+export function sectionSubject(subject: string, section: SectionPattern): string {
+  if (subject !== "full_mock") return subject;
+  const code = section.code.toLowerCase();
+  if (code.startsWith("phy")) return "physics";
+  if (code.startsWith("chem")) return "chemistry";
+  if (code.startsWith("math")) return "mathematics";
+  return "physics";
 }
+
+const MODES: ExamMode[] = ["class11", "class12", "jee_mains", "jee_advanced"];
+function chaptersInAnySyllabus(subject: string): Set<string> {
+  const names = new Set<string>();
+  for (const m of MODES) {
+    try {
+      for (const c of getChaptersForSubject(m, subject)) names.add(c.name);
+    } catch {
+      /* subject not offered in this mode */
+    }
+  }
+  return names;
+}
+
+/** Same-subject fallbacks: e.g. chemistry has no long-answer bank, so use its short answers — never physics. */
+const TYPE_FALLBACKS: Record<string, string[]> = {
+  mcq: ["mcq"],
+  assertion_reason: ["mcq"],
+  multiple_correct: ["mcq"],
+  integer: ["integer"],
+  case_based: ["case", "long", "short"],
+  long_answer: ["long", "short"],
+  short_answer: ["short", "long"],
+};
 
 export function getLocalQuestions(
   mode: ExamMode,
@@ -158,36 +206,48 @@ export function getLocalQuestions(
   chapters: string[],
   section: SectionPattern
 ): Q[] {
-  const subj = pickSubject(mode, subject);
+  const subj = sectionSubject(subject, section);
   const type = section.type;
+  // Chapters of this subject in this exam's syllabus (for honest labels), and in ANY syllabus
+  // (CBSE and JEE spell chapters differently, e.g. "Work Energy and Power" vs "Work, Energy and Power").
+  const subjectChapters = new Set(getChaptersForSubject(mode, subj).map((c: { name: string }) => c.name));
+  const anySyllabus = chaptersInAnySyllabus(subj);
 
   let pool: Q[] = [];
-
-  if (type === "mcq" || type === "assertion_reason") {
-    pool = banks[`${subj}_mcq`] || banks["physics_mcq"];
-  } else if (type === "integer") {
-    pool = banks["integer"];
-  } else if (type === "case_based") {
-    pool = banks[`${subj}_case`] || banks["physics_case"];
-  } else if (type === "long_answer") {
-    pool = banks[`${subj}_long`] || banks["physics_long"];
-  } else if (type === "short_answer") {
-    pool = banks[`${subj}_short`] || banks["physics_short"];
-  } else if (type === "multiple_correct") {
-    pool = (banks[`${subj}_mcq`] || banks["physics_mcq"]).map(q => ({
+  if (type === "integer") {
+    // Integer sections must only ever get numeric-answer questions.
+    pool = banks["integer"].filter((q) => anySyllabus.has(q.chapterName));
+    if (!pool.length) pool = banks["integer"];
+  } else {
+    for (const kind of TYPE_FALLBACKS[type] ?? ["short", "long"]) {
+      pool = banks[`${subj}_${kind}`] ?? [];
+      if (pool.length) break;
+    }
+  }
+  if (!pool.length) {
+    // Last resort: any of this subject's MCQs/short answers.
+    pool = [...(banks[`${subj}_mcq`] ?? []), ...(banks[`${subj}_short`] ?? [])];
+  }
+  if (type === "multiple_correct") {
+    pool = pool.map((q) => ({
       ...q,
       questionText: q.questionText.replace("Which of the following", "Which of the following (one or more correct)"),
     }));
-  } else {
-    pool = banks[`${subj}_short`] || banks["physics_short"];
   }
+  // Prefer questions from the chapters the student picked.
+  const picked = new Set(chapters);
+  pool = [...pool].sort((a, b) => Number(picked.has(b.chapterName)) - Number(picked.has(a.chapterName)));
 
-  const shuffled = shuffle(pool);
+  // Shuffle within "picked chapter" and "other chapter" groups, keeping picked ones first.
+  const shuffled = [...shuffle(pool.filter((q) => picked.has(q.chapterName))), ...shuffle(pool.filter((q) => !picked.has(q.chapterName)))];
   const result: Q[] = [];
 
   for (let i = 0; i < section.questionCount; i++) {
     const base = shuffled[i % shuffled.length];
-    const chapterName = chapters[i % chapters.length];
+    // Keep the question's real chapter (honest analytics); only unknown labels fall back to a picked chapter.
+    const chapterName = subjectChapters.has(base.chapterName) || base.chapterName === "Writing Skills" || base.chapterName === "Grammar" || base.chapterName === "Vocabulary"
+      ? base.chapterName
+      : chapters[i % chapters.length];
     const difficulty: Q["difficulty"] = i < section.questionCount * 0.3 ? "easy" : i < section.questionCount * 0.8 ? "medium" : "hard";
     result.push({
       ...base,

@@ -15,6 +15,7 @@ enum ExamMode {
 }
 
 enum SessionStatus {
+  generating
   active
   auto_submitted
   completed
@@ -150,4 +151,30 @@ model RateLimit {
   key     String   @unique
   count   Int
   resetAt DateTime
+}
+
+/// Mistake notebook: every question a student got wrong becomes a flashcard,
+/// scheduled with SM-2 spaced repetition (the algorithm behind Anki).
+model ReviewCard {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  studentId     String   @db.ObjectId
+  questionId    String   @db.ObjectId
+  sessionId     String   @db.ObjectId
+  mode          ExamMode
+  subject       String
+  chapterName   String
+  type          QuestionType
+  questionText  String
+  options       Json?
+  correctAnswer String
+  solution      String
+  ease          Float    @default(2.5)
+  intervalDays  Int      @default(0)
+  reps          Int      @default(0)
+  lapses        Int      @default(0)
+  dueAt         DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([studentId, questionId])
+  @@index([studentId, dueAt])
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   getChaptersForSubject,
 } from "@/lib/syllabus";
 import Link from "next/link";
+import { clearPhotos } from "@/lib/photo-store";
 
 const steps = ["Select Mode", "Select Subject", "Select Chapters", "Student Info"];
 
@@ -26,6 +27,14 @@ export default function SetupPage() {
   const { toast } = useToast();
   const store = useExamStore();
   const [step, setStep] = useState(0);
+  // "Practice weak topics" from the dashboard pre-selects mode, subject and chapters:
+  // jump straight to the chapter step so the student can review the picks.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("practice") && store.mode && store.subject && store.selectedChapters.length) {
+      setStep(2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState("");
@@ -101,32 +110,48 @@ export default function SetupPage() {
       setLoadingProgress(20);
       setLoadingMessage("Generating your personalized question paper...");
 
-      const progressInterval = setInterval(() => {
-        setLoadingProgress((prev) => Math.min(prev + 2, 90));
-      }, 1000);
+      const readError = async (res: Response, fallback: string) => {
+        // A gateway timeout (504) returns HTML, not JSON — don't crash on it.
+        const err = await res.json().catch(() => ({}));
+        return new Error(err.error || (res.status === 504 ? "The server took too long. Please try again." : fallback));
+      };
+      const post = (url: string, body: unknown) =>
+        fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-      const paperRes = await fetch("/api/generate-paper", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: store.mode,
-          subject: store.subject,
-          chapters: store.selectedChapters,
+      // 1) create the paper, 2) build it one section at a time (each request stays short), 3) start.
+      const createRes = await post("/api/generate-paper", { mode: store.mode, subject: store.subject, chapters: store.selectedChapters });
+      if (!createRes.ok) throw await readError(createRes, "Failed to generate paper");
+      const plan: { sessionId: string; sections: { index: number; name: string }[] } = await createRes.json();
+
+      let done = 0;
+      const buildSection = async (index: number, name: string) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const res = await post("/api/generate-paper/section", { sessionId: plan.sessionId, index }).catch(() => null);
+          if (res?.ok) break;
+          if (res && res.status < 500 && res.status !== 429) throw await readError(res, `Couldn't build ${name}`);
+          if (attempt === 2) throw new Error(`Couldn't build ${name}. Please try again.`);
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+        done += 1;
+        setLoadingProgress(20 + Math.round((done / plan.sections.length) * 70));
+        setLoadingMessage(`Built ${done} of ${plan.sections.length} sections — ${name} ready`);
+      };
+      // Two sections at a time: faster, but gentle on the free AI rate limits.
+      const queue = [...plan.sections];
+      await Promise.all(
+        [0, 1].map(async () => {
+          for (let next = queue.shift(); next; next = queue.shift()) await buildSection(next.index, next.name);
         }),
-      });
+      );
 
-      clearInterval(progressInterval);
-
-      if (!paperRes.ok) {
-        const err = await paperRes.json();
-        throw new Error(err.error || "Failed to generate paper");
-      }
-
+      const paperRes = await post("/api/generate-paper/start", { sessionId: plan.sessionId });
+      if (!paperRes.ok) throw await readError(paperRes, "Failed to start the exam");
       const { sessionId, questions, duration } = await paperRes.json();
 
       setLoadingProgress(95);
       setLoadingMessage("Preparing exam environment...");
 
+      await clearPhotos(); // photos from an older exam
       store.initExam(sessionId, questions, duration);
 
       setLoadingProgress(100);

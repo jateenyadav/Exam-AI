@@ -39,7 +39,7 @@ export const POST = route(async (req) => {
 export const GET = route(async (req) => {
   const student = await requireStudent(req);
   const sessions = await prisma.examSession.findMany({
-    where: { studentId: student.id },
+    where: { studentId: student.id, status: { not: "generating" } }, // half-built papers aren't history
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {

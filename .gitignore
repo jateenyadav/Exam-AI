@@ -43,3 +43,6 @@ prisma/*.db-journal
 .env
 .env.*
 !.env.example
+
+# local demo-video build files
+brag-output/

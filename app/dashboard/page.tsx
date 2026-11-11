@@ -9,6 +9,8 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import { useExamStore } from "@/lib/store/exam-store";
+import { StudyPanel } from "@/components/dashboard/study-panel";
 
 interface SessionData {
   id: string;
@@ -133,6 +135,18 @@ export default function DashboardPage() {
             <Link href="/setup">
               <Button size="sm">New Exam</Button>
             </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                await fetch("/api/session", { method: "DELETE" }).catch(() => null);
+                useExamStore.getState().resetExam();
+                setStudent(null);
+                setSignedOut(true);
+              }}
+            >
+              Sign out
+            </Button>
           </div>
         </div>
       </header>
@@ -173,6 +187,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        <StudyPanel />
 
         {/* Subject Performance */}
         {Object.keys(subjectStats).length > 0 && (
