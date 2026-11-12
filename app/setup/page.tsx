@@ -17,8 +17,10 @@ import {
   ExamMode,
   getChaptersForSubject,
 } from "@/lib/syllabus";
-import Link from "next/link";
 import { clearPhotos } from "@/lib/photo-store";
+import { SiteHeader } from "@/components/brand/site-header";
+import { subjectStyle } from "@/lib/subject-colors";
+import { Atom, Check, GraduationCap, Loader2, Rocket, Trophy, type LucideIcon } from "lucide-react";
 
 const steps = ["Select Mode", "Select Subject", "Select Chapters", "Student Info"];
 
@@ -43,11 +45,11 @@ export default function SetupPage() {
   const [localEmail, setLocalEmail] = useState(store.studentEmail);
   const [localParentEmail, setLocalParentEmail] = useState(store.parentEmail);
 
-  const modes: { key: ExamMode; label: string; desc: string; icon: string }[] = [
-    { key: "class11", label: "Class 11th (CBSE)", desc: "CBSE Board Pattern", icon: "📘" },
-    { key: "class12", label: "Class 12th (CBSE)", desc: "CBSE Board Pattern", icon: "📗" },
-    { key: "jee_mains", label: "JEE Mains", desc: "NTA Pattern", icon: "🎯" },
-    { key: "jee_advanced", label: "JEE Advanced", desc: "Advanced Pattern", icon: "🏆" },
+  const modes: { key: ExamMode; label: string; desc: string; icon: LucideIcon; tile: string; selected: string }[] = [
+    { key: "class11", label: "Class 11th (CBSE)", desc: "CBSE Board Pattern", icon: GraduationCap, tile: "bg-tone-sky-soft text-tone-sky-fg", selected: "border-tone-sky ring-tone-sky/25" },
+    { key: "class12", label: "Class 12th (CBSE)", desc: "CBSE Board Pattern", icon: Atom, tile: "bg-tone-teal-soft text-tone-teal-fg", selected: "border-tone-teal ring-tone-teal/25" },
+    { key: "jee_mains", label: "JEE Mains", desc: "NTA Pattern", icon: Rocket, tile: "bg-tone-violet-soft text-tone-violet-fg", selected: "border-tone-violet ring-tone-violet/25" },
+    { key: "jee_advanced", label: "JEE Advanced", desc: "Advanced Pattern", icon: Trophy, tile: "bg-tone-amber-soft text-tone-amber-fg", selected: "border-tone-amber ring-tone-amber/25" },
   ];
 
   const subjects = store.mode
@@ -172,26 +174,20 @@ export default function SetupPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10">
+      <div className="min-h-screen flex items-center justify-center">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           className="max-w-md w-full mx-4"
         >
-          <Card>
-            <CardContent className="p-8 text-center">
-              <div className="mb-6">
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="inline-block text-5xl"
-                >
-                  📝
-                </motion.div>
+          <Card className="rounded-2xl shadow-soft">
+            <CardContent className="p-8 text-center" aria-live="polite">
+              <div className="mb-6 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
               </div>
               <h2 className="text-xl font-bold mb-2">Preparing Your Exam</h2>
               <p className="text-muted-foreground mb-6 text-sm">{loadingMessage}</p>
-              <Progress value={loadingProgress} className="mb-3" />
+              <Progress value={loadingProgress} className="mb-3 h-2.5" indicatorClassName="bg-gradient-to-r from-primary to-tone-sky" />
               <p className="text-sm text-muted-foreground">{loadingProgress}%</p>
             </CardContent>
           </Card>
@@ -201,15 +197,8 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/5">
-      <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto flex items-center justify-between px-4 py-3">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">E</div>
-            <span className="text-xl font-bold">ExamAce</span>
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <SiteHeader />
 
       <div className="container mx-auto max-w-3xl px-4 py-8">
         <div className="mb-8">
@@ -217,18 +206,19 @@ export default function SetupPage() {
             {steps.map((s, i) => (
               <div key={s} className="flex items-center">
                 <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors ${
+                  aria-current={i === step ? "step" : undefined}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
                     i < step
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-tone-green text-white dark:text-background"
                       : i === step
                         ? "bg-primary text-primary-foreground ring-4 ring-primary/20"
-                        : "bg-muted text-muted-foreground"
+                        : "border bg-card text-muted-foreground"
                   }`}
                 >
-                  {i < step ? "✓" : i + 1}
+                  {i < step ? <Check className="h-4 w-4" aria-hidden /> : i + 1}
                 </div>
                 {i < steps.length - 1 && (
-                  <div className={`hidden sm:block w-16 lg:w-24 h-0.5 mx-2 ${i < step ? "bg-primary" : "bg-muted"}`} />
+                  <div className={`hidden sm:block w-16 lg:w-24 h-1 rounded-full mx-2 ${i < step ? "bg-tone-green" : "bg-muted"}`} />
                 )}
               </div>
             ))}
@@ -256,17 +246,24 @@ export default function SetupPage() {
                   {modes.map((m) => (
                     <Card
                       key={m.key}
-                      className={`cursor-pointer transition-all hover:shadow-md ${
-                        store.mode === m.key
-                          ? "border-primary ring-2 ring-primary/20 shadow-md"
-                          : "hover:border-primary/50"
+                      className={`lift relative cursor-pointer rounded-2xl shadow-soft ${
+                        store.mode === m.key ? `ring-2 ${m.selected}` : "hover:border-primary/30"
                       }`}
                       onClick={() => store.setMode(m.key)}
                     >
-                      <CardContent className="p-6">
-                        <div className="text-3xl mb-3">{m.icon}</div>
-                        <h3 className="font-semibold text-lg">{m.label}</h3>
-                        <p className="text-sm text-muted-foreground">{m.desc}</p>
+                      <CardContent className="flex items-center gap-4 p-5">
+                        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${m.tile}`}>
+                          <m.icon className="h-6 w-6" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-lg">{m.label}</h3>
+                          <p className="text-sm text-muted-foreground">{m.desc}</p>
+                        </div>
+                        {store.mode === m.key && (
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Selected">
+                            <Check className="h-3.5 w-3.5" aria-hidden />
+                          </span>
+                        )}
                       </CardContent>
                     </Card>
                   ))}
@@ -281,21 +278,30 @@ export default function SetupPage() {
                   Choose a subject for {store.mode && syllabusData[store.mode].label}
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {subjects.map((s) => (
-                    <Card
-                      key={s.key}
-                      className={`cursor-pointer transition-all hover:shadow-md ${
-                        store.subject === s.key
-                          ? "border-primary ring-2 ring-primary/20 shadow-md"
-                          : "hover:border-primary/50"
-                      }`}
-                      onClick={() => store.setSubject(s.key)}
-                    >
-                      <CardContent className="p-6">
-                        <h3 className="font-semibold text-lg">{s.name}</h3>
-                      </CardContent>
-                    </Card>
-                  ))}
+                  {subjects.map((s) => {
+                    const st = subjectStyle(s.key);
+                    return (
+                      <Card
+                        key={s.key}
+                        className={`lift cursor-pointer rounded-2xl shadow-soft ${
+                          store.subject === s.key ? `ring-2 ${st.ring}` : "hover:border-primary/30"
+                        }`}
+                        onClick={() => store.setSubject(s.key)}
+                      >
+                        <CardContent className="flex items-center gap-4 p-5">
+                          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${st.tile}`}>
+                            <st.icon className="h-5 w-5" aria-hidden />
+                          </span>
+                          <h3 className="min-w-0 flex-1 font-semibold text-lg">{s.name}</h3>
+                          {store.subject === s.key && (
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Selected">
+                              <Check className="h-3.5 w-3.5" aria-hidden />
+                            </span>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -307,20 +313,22 @@ export default function SetupPage() {
                   Choose chapters to include in your exam
                 </p>
                 <div className="mb-4 flex items-center justify-between">
-                  <Badge variant="outline">
+                  <Badge variant="outline" className="rounded-full border-primary/25 bg-secondary px-3 py-1 text-secondary-foreground">
                     {store.selectedChapters.length} of {chapters.length} selected
                   </Badge>
                   <Button variant="outline" size="sm" onClick={toggleSelectAll}>
                     {allSelected ? "Deselect All" : "Select All"}
                   </Button>
                 </div>
-                <Card>
-                  <CardContent className="p-4 max-h-96 overflow-y-auto">
-                    <div className="space-y-3">
+                <Card className="rounded-2xl shadow-soft">
+                  <CardContent className="p-3 max-h-96 overflow-y-auto">
+                    <div className="space-y-1">
                       {chapters.map((ch) => (
                         <label
                           key={ch.id}
-                          className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-lg p-2 transition-colors"
+                          className={`flex min-h-11 items-center gap-3 cursor-pointer rounded-xl px-3 py-2 transition-colors ${
+                            store.selectedChapters.includes(ch.name) ? "bg-secondary/70" : "hover:bg-muted/60"
+                          }`}
                         >
                           <Checkbox
                             checked={store.selectedChapters.includes(ch.name)}
@@ -341,7 +349,7 @@ export default function SetupPage() {
                 <p className="text-muted-foreground mb-6">
                   Enter your details before starting the exam
                 </p>
-                <Card>
+                <Card className="rounded-2xl shadow-soft">
                   <CardContent className="p-6 space-y-4">
                     <div>
                       <Label htmlFor="name">Full Name *</Label>
@@ -350,7 +358,7 @@ export default function SetupPage() {
                         value={localName}
                         onChange={(e) => setLocalName(e.target.value)}
                         placeholder="Enter your full name"
-                        className="mt-1"
+                        className="mt-1 h-11"
                       />
                     </div>
                     <div>
@@ -361,7 +369,7 @@ export default function SetupPage() {
                         value={localEmail}
                         onChange={(e) => setLocalEmail(e.target.value)}
                         placeholder="your.email@example.com"
-                        className="mt-1"
+                        className="mt-1 h-11"
                       />
                     </div>
                     <div>
@@ -372,7 +380,7 @@ export default function SetupPage() {
                         value={localParentEmail}
                         onChange={(e) => setLocalParentEmail(e.target.value)}
                         placeholder="parent.email@example.com"
-                        className="mt-1"
+                        className="mt-1 h-11"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
                         Results will also be sent to this email
@@ -381,7 +389,7 @@ export default function SetupPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="mt-4">
+                <Card className="mt-4 rounded-2xl border-primary/15 bg-secondary/40 shadow-soft">
                   <CardHeader>
                     <CardTitle className="text-base">Exam Summary</CardTitle>
                   </CardHeader>
@@ -414,6 +422,7 @@ export default function SetupPage() {
         <div className="mt-8 flex items-center justify-between">
           <Button
             variant="outline"
+            className="h-11 rounded-full px-6"
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
           >
@@ -421,11 +430,11 @@ export default function SetupPage() {
           </Button>
 
           {step < 3 ? (
-            <Button onClick={() => setStep((s) => s + 1)} disabled={!canProceed()}>
+            <Button className="h-11 rounded-full px-7" onClick={() => setStep((s) => s + 1)} disabled={!canProceed()}>
               Continue
             </Button>
           ) : (
-            <Button onClick={handleStart} disabled={!canProceed()}>
+            <Button className="h-11 rounded-full px-6 shadow-md shadow-primary/20" onClick={handleStart} disabled={!canProceed()}>
               Generate Paper & Start Exam
             </Button>
           )}
