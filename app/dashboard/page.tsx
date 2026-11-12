@@ -186,13 +186,11 @@ export default function DashboardPage() {
                   <stat.icon className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-2xl font-bold tabular-nums leading-tight">{stat.value}</span>
-                    {completedSessions.length > 0 && stat.pct !== undefined && (
-                      <span className={`text-xs font-semibold ${scoreBand(stat.pct).text}`}>{scoreBand(stat.pct).word}</span>
-                    )}
-                  </div>
+                  <div className="text-2xl font-bold tabular-nums leading-tight">{stat.value}</div>
                   <p className="text-sm text-muted-foreground">{stat.label}</p>
+                  {completedSessions.length > 0 && stat.pct !== undefined && (
+                    <p className={`text-xs font-semibold ${scoreBand(stat.pct).text}`}>{scoreBand(stat.pct).word}</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
