@@ -6,7 +6,11 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./lib/**/*.{ts,tsx}",
   ],
+  // The .dark token block in globals.css sits in @layer base, so Tailwind drops it unless the
+  // class name is kept here (it never appears on its own in the source files).
+  safelist: ["dark"],
   theme: {
   	extend: {
   		colors: {
@@ -50,7 +54,23 @@ const config: Config = {
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
-  			}
+  			},
+  			// Supporting hues: bg-tone-sky (strong), bg-tone-sky-soft, border-tone-sky-border, text-tone-sky-fg …
+  			tone: Object.fromEntries(
+  				["sky", "teal", "violet", "pink", "green", "amber", "coral"].map((h) => [
+  					h,
+  					{
+  						DEFAULT: `hsl(var(--${h}) / <alpha-value>)`,
+  						soft: `hsl(var(--${h}-soft) / <alpha-value>)`,
+  						border: `hsl(var(--${h}-border) / <alpha-value>)`,
+  						fg: `hsl(var(--${h}-fg) / <alpha-value>)`,
+  					},
+  				]),
+  			),
+  		},
+  		boxShadow: {
+  			soft: 'var(--shadow-soft)',
+  			lift: 'var(--shadow-lift)'
   		},
   		borderRadius: {
   			lg: 'var(--radius)',

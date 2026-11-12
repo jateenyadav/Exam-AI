@@ -6,6 +6,26 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Gentle hover lift for clickable cards (the reduced-motion block below turns the motion off). */
+  .lift {
+    transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+  }
+  .text-gradient {
+    background-image: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--sky)) 70%, hsl(var(--teal)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero-wash {
+    background-image:
+      radial-gradient(60% 70% at 15% 10%, hsl(var(--wash-1) / 0.9), transparent 70%),
+      radial-gradient(50% 60% at 85% 20%, hsl(var(--wash-2) / 0.8), transparent 70%),
+      radial-gradient(55% 60% at 60% 95%, hsl(var(--wash-3) / 0.8), transparent 70%);
+  }
 }
 
 @layer base {
@@ -38,6 +58,44 @@
     --chart-4: 200 65% 50%;
     --chart-5: 330 55% 58%;
     --radius: 0.875rem;
+
+    /* Supporting hues. Each has a strong value (bars, icons, rings), a soft tint (chip and tile
+       backgrounds), a border tint, and a foreground that reads at 4.5:1 or better on its soft tint. */
+    --sky: 199 85% 42%;
+    --sky-soft: 199 90% 95%;
+    --sky-border: 199 70% 82%;
+    --sky-fg: 200 85% 26%;
+    --teal: 173 70% 33%;
+    --teal-soft: 170 55% 93%;
+    --teal-border: 172 45% 76%;
+    --teal-fg: 175 75% 21%;
+    --violet: 258 60% 60%;
+    --violet-soft: 258 80% 96%;
+    --violet-border: 258 60% 87%;
+    --violet-fg: 258 50% 38%;
+    --pink: 330 62% 52%;
+    --pink-soft: 330 80% 96%;
+    --pink-border: 330 60% 87%;
+    --pink-fg: 332 60% 34%;
+    --green: 152 60% 36%;
+    --green-soft: 145 55% 93%;
+    --green-border: 150 40% 77%;
+    --green-fg: 155 70% 21%;
+    --amber: 32 92% 41%;
+    --amber-soft: 42 95% 92%;
+    --amber-border: 38 80% 75%;
+    --amber-fg: 28 85% 27%;
+    --coral: 8 75% 56%;
+    --coral-soft: 10 90% 95%;
+    --coral-border: 8 75% 85%;
+    --coral-fg: 5 65% 37%;
+
+    /* Hero wash: indigo into sky into warm peach, kept very light. */
+    --wash-1: 245 80% 92%;
+    --wash-2: 199 85% 90%;
+    --wash-3: 24 95% 91%;
+    --shadow-soft: 0 1px 2px hsl(232 28% 17% / 0.04), 0 8px 24px -12px hsl(245 40% 30% / 0.12);
+    --shadow-lift: 0 2px 4px hsl(232 28% 17% / 0.05), 0 16px 32px -14px hsl(245 40% 30% / 0.22);
   }
 
   .dark {
@@ -66,6 +124,41 @@
     --chart-3: 35 85% 62%;
     --chart-4: 200 65% 60%;
     --chart-5: 330 55% 66%;
+
+    --sky: 199 80% 60%;
+    --sky-soft: 200 45% 16%;
+    --sky-border: 200 40% 28%;
+    --sky-fg: 199 90% 80%;
+    --teal: 172 55% 48%;
+    --teal-soft: 175 40% 14%;
+    --teal-border: 174 35% 26%;
+    --teal-fg: 170 60% 76%;
+    --violet: 258 75% 74%;
+    --violet-soft: 258 30% 19%;
+    --violet-border: 258 28% 32%;
+    --violet-fg: 258 85% 87%;
+    --pink: 330 70% 68%;
+    --pink-soft: 330 30% 17%;
+    --pink-border: 330 28% 30%;
+    --pink-fg: 330 80% 85%;
+    --green: 150 50% 50%;
+    --green-soft: 152 35% 14%;
+    --green-border: 152 30% 26%;
+    --green-fg: 145 55% 76%;
+    --amber: 38 88% 58%;
+    --amber-soft: 35 45% 15%;
+    --amber-border: 36 40% 28%;
+    --amber-fg: 42 90% 76%;
+    --coral: 8 80% 65%;
+    --coral-soft: 8 40% 17%;
+    --coral-border: 8 35% 30%;
+    --coral-fg: 10 90% 83%;
+
+    --wash-1: 245 45% 22%;
+    --wash-2: 205 50% 17%;
+    --wash-3: 20 35% 15%;
+    --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.3), 0 8px 24px -12px hsl(0 0% 0% / 0.5);
+    --shadow-lift: 0 2px 4px hsl(0 0% 0% / 0.3), 0 16px 32px -14px hsl(0 0% 0% / 0.65);
   }
 }
 
@@ -92,11 +185,18 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  .lift:hover {
+    transform: none;
+  }
 }
 
 @media print {
   .no-print {
     display: none !important;
+  }
+  .text-gradient {
+    color: hsl(var(--primary));
+    background: none;
   }
   body {
     background: #fff !important;

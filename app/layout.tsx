@@ -34,7 +34,7 @@ export default function RootLayout({
       <body
         className={`${jakarta.variable} ${geistSans.variable} ${geistMono.variable} font-[family-name:var(--font-sans)] antialiased`}
       >
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <Toaster />
         </ThemeProvider>
