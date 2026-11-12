@@ -4,6 +4,7 @@ import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useExamStore } from "@/lib/store/exam-store";
 import { compressImage } from "@/lib/image";
+import { Camera, CheckCircle2, ImageUp } from "lucide-react";
 
 interface CameraCaptureProps {
   questionId: string;
@@ -108,7 +109,7 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
   return (
     <div className="space-y-3">
       {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="text-sm text-tone-coral-fg">
           {error}
         </p>
       )}
@@ -121,7 +122,10 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
               className="w-full max-h-80 object-contain"
             />
             <div className="absolute top-2 right-2">
-              <Badge className="bg-green-500 text-white">Answer Captured</Badge>
+              <Badge className="gap-1 border border-tone-green-border bg-tone-green-soft text-tone-green-fg">
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                Answer Captured
+              </Badge>
             </div>
           </div>
           <div className="flex gap-2">
@@ -166,7 +170,7 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
             onClick={startCamera}
             className="flex-1 h-20 flex-col gap-1"
           >
-            <span className="text-2xl">📷</span>
+            <Camera className="!size-6 text-primary" aria-hidden />
             <span className="text-sm">Open Camera</span>
           </Button>
           <div className="flex-1">
@@ -175,7 +179,7 @@ export function CameraCapture({ existingImage, onCapture }: CameraCaptureProps) 
               onClick={openFilePicker}
               className="flex h-20 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed hover:border-primary/50 hover:bg-muted/50 transition-colors flex-col gap-1"
             >
-              <span className="text-2xl">📁</span>
+              <ImageUp className="h-6 w-6 text-muted-foreground" aria-hidden />
               <span className="text-sm text-muted-foreground">Upload Image</span>
             </button>
             <input

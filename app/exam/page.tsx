@@ -16,13 +16,15 @@ import { useToast } from "@/hooks/use-toast";
 import { CameraCapture } from "@/components/exam/camera-capture";
 import { uploadAnswers, type AnswerUpload } from "@/lib/submit";
 import { clearPhotos, deletePhoto, loadPhotos, savePhoto } from "@/lib/photo-store";
+import { AlertTriangle, Clock } from "lucide-react";
 
+// Quiet palette for the exam room: soft tints from the shared tokens, nothing bright.
 const STATUS_COLORS: Record<QuestionStatus, string> = {
-  not_visited: "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
-  visited: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-  answered: "bg-green-100 text-green-700 border-green-300 dark:bg-green-900 dark:text-green-300",
-  marked_for_review: "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900 dark:text-orange-300",
-  answered_and_marked: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900 dark:text-purple-300",
+  not_visited: "bg-muted text-muted-foreground border-border",
+  visited: "bg-tone-sky-soft text-tone-sky-fg border-tone-sky-border",
+  answered: "bg-tone-green-soft text-tone-green-fg border-tone-green-border",
+  marked_for_review: "bg-tone-amber-soft text-tone-amber-fg border-tone-amber-border",
+  answered_and_marked: "bg-tone-violet-soft text-tone-violet-fg border-tone-violet-border",
 };
 
 export default function ExamPage() {
@@ -326,9 +328,9 @@ export default function ExamPage() {
     <div className="min-h-screen bg-background flex flex-col select-none">
       {/* Warning Overlay */}
       {showWarning && (
-        <div className="fixed inset-0 z-[100] bg-red-500/90 flex items-center justify-center text-white">
+        <div role="alert" className="fixed inset-0 z-[100] bg-destructive/90 flex items-center justify-center text-destructive-foreground">
           <div className="text-center p-8">
-            <div className="text-6xl mb-4">⚠️</div>
+            <AlertTriangle className="mx-auto mb-4 h-14 w-14" aria-hidden />
             <h2 className="text-2xl font-bold mb-2">Warning!</h2>
             <p className="text-lg">{warningMessage}</p>
           </div>
@@ -346,10 +348,12 @@ export default function ExamPage() {
             Q {currentQuestionIndex + 1} / {questions.length}
           </Badge>
           <div
-            className={`font-mono text-lg font-bold ${
-              timeRemaining < 600 ? "text-red-500 animate-pulse" : "text-foreground"
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-mono text-lg font-bold tabular-nums ${
+              timeRemaining < 600 ? "bg-tone-coral-soft text-tone-coral-fg" : "text-foreground"
             }`}
           >
+            <Clock className="h-4 w-4" aria-hidden />
+            <span className="sr-only">Time left: </span>
             {formatTime(timeRemaining)}
           </div>
           <Button
@@ -364,7 +368,7 @@ export default function ExamPage() {
       </div>
 
       {showTimeWarning && (
-        <div className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-center py-1 text-sm font-medium">
+        <div role="status" className="bg-tone-amber-soft text-tone-amber-fg text-center py-1 text-sm font-medium">
           Time is running out! {formatTime(timeRemaining)} remaining.
         </div>
       )}
@@ -375,9 +379,9 @@ export default function ExamPage() {
           <div className="mb-3">
             <h3 className="text-sm font-semibold mb-2">Question Palette</h3>
             <div className="flex flex-wrap gap-1 text-xs mb-2">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-200 inline-block" /> Not visited</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-200 inline-block" /> Answered</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-200 inline-block" /> Review</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border bg-muted inline-block" /> Not visited</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border border-tone-green-border bg-tone-green-soft inline-block" /> Answered</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border border-tone-amber-border bg-tone-amber-soft inline-block" /> Review</span>
             </div>
           </div>
           <ScrollArea className="h-48 lg:h-[calc(100vh-200px)]">
@@ -386,9 +390,10 @@ export default function ExamPage() {
                 <button
                   key={q.id}
                   onClick={() => store.goToQuestion(idx)}
-                  className={`w-8 h-8 rounded text-xs font-medium border transition-all ${
+                  aria-current={idx === currentQuestionIndex ? "true" : undefined}
+                  className={`w-8 h-8 rounded-md text-xs font-medium border transition-colors ${
                     idx === currentQuestionIndex
-                      ? "ring-2 ring-primary"
+                      ? "ring-2 ring-primary ring-offset-1 ring-offset-card"
                       : ""
                   } ${STATUS_COLORS[questionStatuses[q.id] || "not_visited"]}`}
                 >
@@ -456,7 +461,7 @@ export default function ExamPage() {
                       {currentQuestion.options.map((opt, i) => (
                         <label
                           key={i}
-                          className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+                          className="flex min-h-11 items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors has-[[data-state=checked]]:border-primary/50 has-[[data-state=checked]]:bg-secondary/60"
                         >
                           <RadioGroupItem value={String.fromCharCode(65 + i)} id={`opt-${i}`} />
                           <Label htmlFor={`opt-${i}`} className="cursor-pointer flex-1 text-sm">
@@ -487,7 +492,7 @@ export default function ExamPage() {
                       return (
                         <label
                           key={i}
-                          className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+                          className="flex min-h-11 items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors has-[[data-state=checked]]:border-primary/50 has-[[data-state=checked]]:bg-secondary/60"
                         >
                           <Checkbox
                             checked={selected}
@@ -546,7 +551,7 @@ export default function ExamPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-orange-300 text-orange-600 hover:bg-orange-50"
+                  className="border-tone-amber-border text-tone-amber-fg hover:bg-tone-amber-soft hover:text-tone-amber-fg"
                   onClick={() => store.markForReview(currentQuestion.id)}
                 >
                   Mark for Review
@@ -580,25 +585,26 @@ export default function ExamPage() {
           </DialogHeader>
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-green-50 dark:bg-green-950 p-3 text-center">
-                <div className="text-2xl font-bold text-green-600">{counts.answered}</div>
+              <div className="rounded-lg bg-tone-green-soft p-3 text-center">
+                <div className="text-2xl font-bold text-tone-green-fg">{counts.answered}</div>
                 <div className="text-xs text-muted-foreground">Answered</div>
               </div>
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3 text-center">
-                <div className="text-2xl font-bold text-gray-600">{counts.unanswered}</div>
+              <div className="rounded-lg bg-muted p-3 text-center">
+                <div className="text-2xl font-bold text-foreground">{counts.unanswered}</div>
                 <div className="text-xs text-muted-foreground">Unanswered</div>
               </div>
-              <div className="rounded-lg bg-orange-50 dark:bg-orange-950 p-3 text-center">
-                <div className="text-2xl font-bold text-orange-600">{counts.marked}</div>
+              <div className="rounded-lg bg-tone-amber-soft p-3 text-center">
+                <div className="text-2xl font-bold text-tone-amber-fg">{counts.marked}</div>
                 <div className="text-xs text-muted-foreground">Marked for Review</div>
               </div>
-              <div className="rounded-lg bg-blue-50 dark:bg-blue-950 p-3 text-center">
-                <div className="text-2xl font-bold text-blue-600">{counts.total}</div>
+              <div className="rounded-lg bg-tone-sky-soft p-3 text-center">
+                <div className="text-2xl font-bold text-tone-sky-fg">{counts.total}</div>
                 <div className="text-xs text-muted-foreground">Total</div>
               </div>
             </div>
             {counts.unanswered > 0 && (
-              <p className="text-orange-600 font-medium">
+              <p className="flex items-center gap-1.5 text-tone-amber-fg font-medium">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
                 You have {counts.unanswered} unanswered questions!
               </p>
             )}
