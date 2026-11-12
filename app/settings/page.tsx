@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { SiteHeader } from "@/components/brand/site-header";
+import { AlertCircle } from "lucide-react";
 
 interface Status {
   ai: { providers: string[]; geminiModel: string | null; openrouterModel: string | null };
@@ -42,18 +44,15 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/5">
-      <header className="border-b bg-card/80 backdrop-blur-sm">
-        <div className="container mx-auto flex items-center justify-between px-4 py-3">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">E</div>
-            <span className="text-xl font-bold">ExamAce</span>
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <SiteHeader sticky={false}>
+        <Link href="/">
+          <Button variant="ghost" size="sm" className="h-10">Home</Button>
+        </Link>
+      </SiteHeader>
 
       <main className="container mx-auto max-w-xl px-4 py-12 space-y-6">
-        <Card>
+        <Card className="rounded-2xl shadow-soft">
           <CardHeader>
             <CardTitle>Admin status</CardTitle>
             <p className="text-sm text-muted-foreground">
@@ -71,18 +70,23 @@ export default function SettingsPage() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && token && load()}
-                className="mt-1"
+                className="mt-1 h-11"
               />
             </div>
-            <Button onClick={load} disabled={!token || loading} className="w-full">
+            <Button onClick={load} disabled={!token || loading} className="h-11 w-full rounded-full">
               {loading ? "Checking…" : "Show status"}
             </Button>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && (
+              <p role="alert" className="flex items-center gap-2 rounded-xl border border-tone-coral-border bg-tone-coral-soft p-3 text-sm text-tone-coral-fg">
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+                {error}
+              </p>
+            )}
           </CardContent>
         </Card>
 
         {status && (
-          <Card>
+          <Card className="rounded-2xl shadow-soft">
             <CardContent className="space-y-4 pt-6 text-sm">
               <div>
                 <p className="font-medium mb-1">AI providers (in fallback order)</p>
@@ -93,7 +97,7 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-red-600">None configured — set GEMINI_API_KEY (free in Google AI Studio).</p>
+                  <p className="text-tone-coral-fg">None configured — set GEMINI_API_KEY (free in Google AI Studio).</p>
                 )}
                 <p className="text-muted-foreground mt-1">
                   Gemini model: {status.ai.geminiModel ?? "—"} · OpenRouter model: {status.ai.openrouterModel ?? "—"}
